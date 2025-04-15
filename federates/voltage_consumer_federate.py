@@ -15,14 +15,16 @@ def get_values_at_time(t, df):
         row = df.iloc[-1]
     return row.drop('time').to_dict()
 
-def run_voltage_consumer_federate(solar_data, load_data, node_names, simulation_time=300, time_step=1.0):
+def run_voltage_consumer_federate(solar_data, load_data, node_names, simulation_time, time_step=1.0):
     fedinfo = h.helicsCreateFederateInfo()
     h.helicsFederateInfoSetCoreName(fedinfo, "Voltage_Consumer_Federate")
     h.helicsFederateInfoSetCoreTypeFromString(fedinfo, "zmq")
     h.helicsFederateInfoSetTimeProperty(fedinfo, h.HELICS_PROPERTY_TIME_DELTA, time_step)
     
     fed = h.helicsCreateValueFederate("Voltage_Consumer_Federate", fedinfo)
-    pub = h.helicsFederateRegisterPublication(fed, "net_demand", h.HELICS_DATA_TYPE_STRING, "")
+    pub_load = h.helicsFederateRegisterPublication(fed, "load", h.HELICS_DATA_TYPE_STRING, "")
+    pub_solar = h.helicsFederateRegisterPublication(fed, "solar", h.HELICS_DATA_TYPE_STRING, "")
+    #pub = h.helicsFederateRegisterPublication(fed, "net_demand", h.HELICS_DATA_TYPE_STRING, "")
     sub = h.helicsFederateRegisterSubscription(fed, "OpenDSS_Federate/voltage_out", "")
     
     h.helicsFederateEnterExecutingMode(fed)
@@ -34,12 +36,15 @@ def run_voltage_consumer_federate(solar_data, load_data, node_names, simulation_
     while current_time < simulation_time:
         solar_values = get_values_at_time(current_time, solar_data)
         load_values = get_values_at_time(current_time, load_data)
+
+        h.helicsPublicationPublishString(pub_load, str(load_values))
+        h.helicsPublicationPublishString(pub_solar, str(solar_values))
         
         # Compute net demand for each node (load minus solar generation)
-        net_demand = {node.lower(): load_values.get(node, 0) - solar_values.get(node, 0) for node in node_names}
+        #net_demand = {node.lower(): load_values.get(node, 0) - solar_values.get(node, 0) for node in node_names}
+        #h.helicsPublicationPublishString(pub, str(net_demand))
         #print(f"[Consumer] Time: {current_time} | Net Demand: {net_demand.get('s701a', 'N/A')}")
         
-        h.helicsPublicationPublishString(pub, str(net_demand))
         next_time = current_time + time_step
         granted_time = h.helicsFederateRequestTime(fed, next_time)
         #print(f"[Consumer] Granted time: {granted_time}")
