@@ -134,5 +134,6 @@ def run_opendss_federate():
         h.helicsPublicationPublishString(pub, str(voltage_dict))
         current_time = granted_time
     
+    h.helicsFederateDisconnect(fed)
     h.helicsFederateFinalize(fed)
     print("[OpenDSS Federate] Finalized.")

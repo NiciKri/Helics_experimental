@@ -208,5 +208,6 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
         next_time = current_time + delta_t
         current_time = h.helicsFederateRequestTime(fed, next_time)
 
+    h.helicsFederateDisconnect(fed)
     h.helicsFederateFinalize(fed)
     print("[Inverter Federate] Finalized.")
