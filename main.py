@@ -50,15 +50,8 @@ breaking_points.columns = breaking_points.columns.str.replace('S', 's')
 
 # Example: attack all inverters from t=100 to t=200, X% capacity reduction, no explicit bp override
 print("node names", node_names)
-#hack_nodes = ["s701a", "s701b", "s701c", "s713a", "s713b", "s713c"]
-hack_nodes = ["s701a", "s701b"]
-#hack_nodes = node_names  # Uncomment to attack all nodes
-#bp_override = [0.95, 0.95, 0.95, 0.95, 0.95]  # Example breakpoint override
-bp_override = 0.5  # Example breakpoint override
 
-hacks_list = [
-    [100, 200, 0.8, bp_override, hack_nodes],
-]
+hacks_list = config.hacks_list
 
 # =============================================================================
 # HELICS Broker Setup
