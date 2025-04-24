@@ -5,13 +5,14 @@ import random
 
 DEFAULT_CONTROL_SETTING = [0.98, 1.01, 1.02, 1.05, 1.07]
 
+
 def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
     """
     hacks: list of [start, end, hack_pct, bp_override, devices]
     breakpoints_df: DataFrame with lowercase node names as columns and 5 numeric entries each
     Publishes at each time step a dict:
-      { node: [ {"pct": <fraction>, "bp": [...]} , ... ] }
-    where the first entry is always the healthy segment, followed by each hack contribution.
+      { node: [ {"pct": <fraction>, "bp": [...]}, ... ] }
+    Segments list always has length = 1 (healthy) + len(hacks): inactive hacks have pct=0.
     """
     # --- HELICS setup ---
     fedinfo = h.helicsCreateFederateInfo()
@@ -23,72 +24,43 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
     pub = h.helicsFederateRegisterPublication(fed, "breakpoints_attack", h.HELICS_DATA_TYPE_STRING, "")
     h.helicsFederateEnterExecutingMode(fed)
 
-    # Time bounds and device list
-    start_time = 0
-    end_time = simulation_time
-    duration = end_time - start_time
-    pv_devices = []
+    # Precompute PV devices and original bps
+    pv_devices = [col.strip().lower() for col in breakpoints_df.columns] if breakpoints_df is not None else []
+    node_bps = {}
     if breakpoints_df is not None:
-        pv_devices = [col.strip().lower() for col in breakpoints_df.columns]
+        for col in breakpoints_df.columns:
+            vals = breakpoints_df[col].dropna().tolist()
+            node_bps[col.strip().lower()] = [float(v) for v in vals] if len(vals) >= 5 else DEFAULT_CONTROL_SETTING
 
-    # Fill defaults for hacks
-    for hack in hacks:
-        # start/end times
-        if hack[0] is None and hack[1] is None:
-            hack[0] = start_time + round(duration * 0.25)
-            hack[1] = start_time + round(duration * 0.75)
-        elif hack[0] is None:
-            hack[0] = random.randint(start_time + 1, hack[1] - 1)
-        elif hack[1] is None:
-            hack[1] = random.randint(hack[0] + 1, end_time - 1)
-        # hack percentage
-        if hack[2] is None:
-            hack[2] = round(random.uniform(0.05, 0.40), 2)
-        # target devices
-        if hack[4] is None:
-            hack[4] = pv_devices.copy()
-        elif isinstance(hack[4], (int, float)):
-            count = int(hack[4] * len(pv_devices)) if isinstance(hack[4], float) else hack[4]
-            hack[4] = random.sample(pv_devices, count)
-
+    num_hacks = len(hacks)
     current_time = 0.0
-    while current_time < simulation_time:
-        # Gather active hacks per node
-        node_hacks = {}
-        for start, end, pct, bp, devices in hacks:
-            if start <= current_time < end+1:
-                for dev in devices:
-                    node = dev.replace("inverter_", "").lower()
-                    # Determine this hack's breakpoints list
-                    if isinstance(bp, list):
-                        bp_list = [float(x) for x in bp]
-                    elif isinstance(bp, numbers.Number):
-                        orig = (breakpoints_df[node].dropna().tolist()
-                                if node in breakpoints_df else DEFAULT_CONTROL_SETTING)
-                        orig = [float(v) for v in orig] if len(orig) >= 5 else list(DEFAULT_CONTROL_SETTING)
-                        bp_list = [v + float(bp) for v in orig]
-                    else:
-                        orig = (breakpoints_df[node].dropna().tolist()
-                                if node in breakpoints_df else DEFAULT_CONTROL_SETTING)
-                        bp_list = [float(v) for v in orig]
-                    node_hacks.setdefault(node, []).append((start, pct, bp_list))
 
+    while current_time < simulation_time:
         attack_msg = {}
-        # Build message with healthy first, then hacks
-        for node, infos in node_hacks.items():
-            infos.sort(key=lambda x: x[0])
-            orig_bp = (breakpoints_df[node].dropna().tolist()
-                       if node in breakpoints_df else DEFAULT_CONTROL_SETTING)
-            orig_bp = [float(v) for v in orig_bp]
-            hack_segments = []
+        for node in pv_devices:
+            orig_bp = node_bps.get(node, DEFAULT_CONTROL_SETTING)
             remaining = 1.0
-            for _, pct, bp_list in infos:
-                seg_pct = round(pct * remaining, 4)
+            hack_segments = []
+            # Build one segment per hack definition
+            for start, end, pct, bp_override, devices in hacks:
+                active = (start <= current_time < end + 1) and (node in [d.lower() for d in devices])
+                if active:
+                    seg_pct = round(pct * remaining, 4)
+                    # determine breakpoint list for this hack
+                    if isinstance(bp_override, list):
+                        bp_list = [float(v) for v in bp_override]
+                    elif isinstance(bp_override, numbers.Number):
+                        bp_list = [v + float(bp_override) for v in orig_bp]
+                    else:
+                        bp_list = orig_bp
+                    remaining *= (1.0 - pct)
+                else:
+                    seg_pct = 0.0
+                    bp_list = orig_bp
                 hack_segments.append({"pct": seg_pct, "bp": bp_list})
-                remaining *= (1.0 - pct)
-            healthy_pct = round(remaining, 4)
-            healthy_segment = {"pct": healthy_pct, "bp": orig_bp}
-            segments = [healthy_segment] + hack_segments
+            # Healthy segment first
+            healthy_seg = {"pct": round(remaining, 4), "bp": orig_bp}
+            segments = [healthy_seg] + hack_segments
             attack_msg[node] = segments
 
         print(f"[Attack Federate] t={current_time:.1f} → {attack_msg}")
