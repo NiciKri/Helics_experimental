@@ -14,16 +14,14 @@ SOLAR_MIN_VALUE = 5.0            # Minimum solar irradiance threshold
 DELTA_T = 1.0                    # Default time step
 
 def initialize_node_state():
-    """Initialize and return a state dictionary for one node."""
-    state = {
+    """Initialize and return a state dictionary for one segment of one node."""
+    return {
         'p_set': deque([0, 0], maxlen=2),
         'q_set': deque([0, 0], maxlen=2),
         'p_out': deque([0, 0], maxlen=2),
         'q_out': deque([0, 0], maxlen=2),
         'lpf_v': deque([1.0, 1.0], maxlen=2)
     }
-    return state
-
 
 def calculate_injection_for_node(state, current_time, measured_voltage, measured_solar,
                                  delta_t=DELTA_T,
@@ -33,67 +31,64 @@ def calculate_injection_for_node(state, current_time, measured_voltage, measured
                                  Sbar=S_BAR,
                                  solar_min=SOLAR_MIN_VALUE):
     """
-    Compute active (p) and reactive (q) power injections.
-    Applies a low-pass filter to the voltage and uses the inverter control curve.
-    Active injections are returned as positive numbers, and the node‐specific
-    SBAR (apparent power rating) is applied.
+    Compute active (p) and reactive (q) power injections for a given state and control curve.
+    Applies low-pass filtering and Volt-Var logic.
     """
     vk = measured_voltage
     vkm1 = state['lpf_v'][-1]
     # Low-pass filter for voltage
-    low_pass_filter_v = (delta_t * lpf_m * (vk + vkm1) - (delta_t * lpf_m - 2) * state['lpf_v'][-1]) / (2 + delta_t * lpf_m)
+    low_pass_filter_v = (delta_t * lpf_m * (vk + vkm1) - (delta_t * lpf_m - 2) * vkm1) / (2 + delta_t * lpf_m)
 
     pk = 0.0
     qk = 0.0
-    if measured_solar >= solar_min:
-        if low_pass_filter_v <= control_setting[-1]:
-            pk = measured_solar
-            try:
-                q_avail = math.sqrt(max(Sbar**2 - pk**2, 0))
-            except:
-                q_avail = 0.0
-            # Volt-Var control segments
-            if low_pass_filter_v <= control_setting[0]:
-                qk = q_avail
-            elif control_setting[0] < low_pass_filter_v <= control_setting[1]:
-                c = q_avail / (control_setting[1] - control_setting[0])
-                qk = c * (control_setting[1] - low_pass_filter_v)
-            elif control_setting[1] < low_pass_filter_v <= control_setting[2]:
-                qk = 0.0
-            elif control_setting[2] < low_pass_filter_v <= control_setting[3]:
-                c = q_avail / (control_setting[3] - control_setting[2])
-                qk = -c * (low_pass_filter_v - control_setting[2])
-            elif control_setting[3] < low_pass_filter_v < control_setting[4]:
-                d = measured_solar / (control_setting[4] - control_setting[3])
-                pk = d * (low_pass_filter_v - control_setting[3])
-                try:
-                    qk = -math.sqrt(max(Sbar**2 - pk**2, 0))
-                except:
-                    qk = 0.0
+    if measured_solar >= solar_min and low_pass_filter_v <= control_setting[-1]:
+        pk = measured_solar
+        try:
+            q_avail = math.sqrt(max(Sbar**2 - pk**2, 0))
+        except:
+            q_avail = 0.0
+        # Volt-Var control segments
+        if low_pass_filter_v <= control_setting[0]:
+            qk = q_avail
+        elif low_pass_filter_v <= control_setting[1]:
+            c = q_avail / (control_setting[1] - control_setting[0])
+            qk = c * (control_setting[1] - low_pass_filter_v)
+        elif low_pass_filter_v <= control_setting[2]:
+            qk = 0.0
+        elif low_pass_filter_v <= control_setting[3]:
+            c = q_avail / (control_setting[3] - control_setting[2])
+            qk = -c * (low_pass_filter_v - control_setting[2])
         else:
-            pk = 0.0
-            qk = -Sbar
+            d = measured_solar / (control_setting[4] - control_setting[3])
+            pk = d * (low_pass_filter_v - control_setting[3])
+            try:
+                qk = -math.sqrt(max(Sbar**2 - pk**2, 0))
+            except:
+                qk = 0.0
+    elif low_pass_filter_v > control_setting[-1]:
+        # Above max voltage, sink reactive
+        qk = -Sbar
 
+    # Update filters
     state['p_set'].append(pk)
     state['q_set'].append(qk)
-    p_out_new = (delta_t * lpf_o * (state['p_set'][-1] + state['p_set'][-2]) - (delta_t * lpf_o - 2) * state['p_out'][-1]) / (2 + delta_t * lpf_o)
-    q_out_new = (delta_t * lpf_o * (state['q_set'][-1] + state['q_set'][-2]) - (delta_t * lpf_o - 2) * state['q_out'][-1]) / (2 + delta_t * lpf_o)
-    state['p_out'].append(p_out_new)
-    state['q_out'].append(q_out_new)
+    p_out = (delta_t * lpf_o * (state['p_set'][-1] + state['p_set'][-2]) - (delta_t * lpf_o - 2) * state['p_out'][-1]) / (2 + delta_t * lpf_o)
+    q_out = (delta_t * lpf_o * (state['q_set'][-1] + state['q_set'][-2]) - (delta_t * lpf_o - 2) * state['q_out'][-1]) / (2 + delta_t * lpf_o)
+    state['p_out'].append(p_out)
+    state['q_out'].append(q_out)
     state['lpf_v'].append(low_pass_filter_v)
 
-    return measured_solar, p_out_new, q_out_new
-
+    return p_out, q_out
 
 def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
                           breakpoints_df=None, sbar_df=None):
     """
-    Run the inverter federate using node-specific control breakpoints and SBAR values.
-    Integrates attack overrides when published by the Attack_Federate.
+    Run inverter federate, computing injections for each segment (healthy + attacks).
+    Always use the last breakpoints received from the broker; original breakpoints are backups.
     """
     delta_t = time_step
 
-    # HELICS federate setup
+    # HELICS setup
     fedinfo = h.helicsCreateFederateInfo()
     h.helicsFederateInfoSetCoreName(fedinfo, "Inverter_Federate")
     h.helicsFederateInfoSetCoreTypeFromString(fedinfo, "zmq")
@@ -101,105 +96,116 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
 
     fed = h.helicsCreateValueFederate("Inverter_Federate", fedinfo)
     pub = h.helicsFederateRegisterPublication(fed, "injections", h.HELICS_DATA_TYPE_STRING, "")
-
     voltage_sub = h.helicsFederateRegisterSubscription(fed, "OpenDSS_Federate/voltage_out", "")
     solar_sub = h.helicsFederateRegisterSubscription(fed, "Voltage_Consumer_Federate/solar", "")
     attack_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/breakpoints_attack", "")
 
     h.helicsFederateEnterExecutingMode(fed)
 
-    # Initialize state
-    node_states = {node.lower(): initialize_node_state() for node in node_names}
-
-    # Load node-specific breakpoints
+    # Load breakpoints and Sbar
     node_breakpoints = {}
     if breakpoints_df is not None:
         breakpoints_df.columns = breakpoints_df.columns.str.strip().str.lower()
         for col in breakpoints_df.columns:
             vals = breakpoints_df[col].dropna().tolist()
-            if len(vals) == 5:
+            if len(vals) >= 5:
                 node_breakpoints[col] = [float(x) for x in vals]
 
-    # Load node-specific SBAR
     node_sbar = {}
-    if sbar_df is not None:
-        if sbar_df.shape[0] == 1:
-            for col, val in sbar_df.iloc[0].items():
-                node_sbar[col.strip().lower()] = float(val)
-        elif "node" in sbar_df.columns:
-            for _, row in sbar_df.iterrows():
-                node_sbar[str(row['node']).strip().lower()] = float(row['sbar'])
+    if sbar_df is not None and sbar_df.shape[0] >= 1:
+        row = sbar_df.iloc[0]
+        for col, val in row.items():
+            node_sbar[str(col).strip().lower()] = float(val) * config.Sbar_scaling
 
-    # Track default usage
-    default_count = sum(1 for n in node_names if n.lower() not in node_sbar)
-    print(f"Nodes using default SBAR: {default_count}/{len(node_names)}")
+    # State storage: node -> list of states per segment
+    node_states = {node.lower(): [] for node in node_names}
 
-    # Attack overrides (empty until first message)
-    attack_override = {}
+    # Cache for last received segments per node (override or original)
+    last_override_segments = {}
+    for node in node_names:
+        key = node.lower()
+        orig_bp = node_breakpoints.get(key, DEFAULT_CONTROL_SETTING)
+        last_override_segments[key] = [{"pct": 1.0, "bp": orig_bp}]
 
     current_time = 0.0
     while current_time < simulation_time:
-        # Receive voltage
+        # Receive voltage with timeout
+        voltage_data = {}
         voltage_timeout = 0
         while not h.helicsInputIsUpdated(voltage_sub) and voltage_timeout < 100:
-            time.sleep(0.01); voltage_timeout += 1
-        voltage_data = {}
-        vs = h.helicsInputGetString(voltage_sub)
+            time.sleep(0.01)
+            voltage_timeout += 1
         try:
+            vs = h.helicsInputGetString(voltage_sub)
             voltage_data = eval(vs) if vs.strip().startswith('{') else {}
         except:
-            pass
+            voltage_data = {}
 
-        # Receive solar
+        # Receive solar with timeout
+        solar_data = {}
         solar_timeout = 0
         while not h.helicsInputIsUpdated(solar_sub) and solar_timeout < 100:
-            time.sleep(0.01); solar_timeout += 1
-        solar_data_msg = h.helicsInputGetString(solar_sub)
-        solar_data = {}
+            time.sleep(0.01)
+            solar_timeout += 1
         try:
-            solar_data = eval(solar_data_msg) if solar_data_msg.strip().startswith('{') else {}
+            ss = h.helicsInputGetString(solar_sub)
+            solar_data = eval(ss) if ss.strip().startswith('{') else {}
         except:
-            pass
+            solar_data = {}
 
-        # Check for attack override
+        # Check for attack override (no blocking)
         if h.helicsInputIsUpdated(attack_sub):
-            atk_str = h.helicsInputGetString(attack_sub)
             try:
-                attack_override = eval(atk_str)
+                ao = h.helicsInputGetString(attack_sub)
+                attack_override = eval(ao) or {}
             except:
                 attack_override = {}
+            # Update cached segments with latest override
+            for key, segs in attack_override.items():
+                last_override_segments[key] = segs
 
         injections = {}
         for node in node_names:
             key = node.lower()
-            # Base settings
-            control_setting = node_breakpoints.get(key, DEFAULT_CONTROL_SETTING)
-            sbar_val = node_sbar.get(key, S_BAR) * config.Sbar_scaling
 
-            # Apply attack if exists
-            if key in attack_override:
-                atk = attack_override[key]
-                bp_list = atk.get("bp", None)
-                hack_pct = atk.get("hack_pct", 0.0)
-                if bp_list is not None:
-                    control_setting = bp_list
-                sbar_val = sbar_val * (1.0 - hack_pct)
+            # Measurements
+            mv = voltage_data.get(key, voltage_data.get(key[1:] if key.startswith('s') else key, 1.0))
+            ms = solar_data.get(key, 0.0)
 
-            # Retrieve measurements
-            if key not in voltage_data and key.startswith('s'):
-                measured_voltage = voltage_data.get(key[1:], 1.0)
-            else:
-                measured_voltage = voltage_data.get(key, 1.0)
-            measured_solar = solar_data.get(key, 0.0)
+            # Original control and Sbar
+            orig_bp = node_breakpoints.get(key, DEFAULT_CONTROL_SETTING)
+            orig_sbar = node_sbar.get(key, S_BAR * config.Sbar_scaling)
 
-            state = node_states[key]
-            _, p_out, q_out = calculate_injection_for_node(
-                state, current_time, measured_voltage, measured_solar,
-                delta_t, control_setting,
-                LOW_PASS_FILTER_MEASURE, LOW_PASS_FILTER_OUTPUT,
-                sbar_val, SOLAR_MIN_VALUE
-            )
-            injections[key] = {"p": p_out, "q": q_out}
+            # Segments list: use last known override or original as backup
+            segments = last_override_segments.get(key, [{"pct": 1.0, "bp": orig_bp}])
+
+            # Align state list length
+            states = node_states[key]
+            if len(states) < len(segments):
+                for _ in range(len(segments) - len(states)):
+                    states.append(initialize_node_state())
+            elif len(states) > len(segments):
+                node_states[key] = states[:len(segments)]
+                states = node_states[key]
+
+            # Compute injections by segment
+            p_total = 0.0
+            q_total = 0.0
+            for idx, seg in enumerate(segments):
+                pct = seg.get("pct", 0.0)
+                bp = seg.get("bp", orig_bp)
+                solar_seg = ms * pct
+                sbar_seg = orig_sbar * pct
+                state = states[idx]
+                p_seg, q_seg = calculate_injection_for_node(
+                    state, current_time, mv, solar_seg,
+                    delta_t, bp, LOW_PASS_FILTER_MEASURE, LOW_PASS_FILTER_OUTPUT,
+                    sbar_seg, SOLAR_MIN_VALUE
+                )
+                p_total += p_seg
+                q_total += q_seg
+
+            injections[key] = {"p": p_total, "q": q_total}
 
         # Publish injections
         h.helicsPublicationPublishString(pub, str(injections))
