@@ -139,7 +139,7 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
             healthy = {"pct": round(remaining, 4), "bp": orig_bp}
             attack_msg[node] = [healthy] + segments
 
-        print(f"[Attack Federate] t={current_time:.1f} → {attack_msg}")
+        #print(f"[Attack Federate] t={current_time:.1f} → {attack_msg}")
         h.helicsPublicationPublishString(pub, str(attack_msg))
 
         # 3) Advance time

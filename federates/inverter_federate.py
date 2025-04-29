@@ -98,7 +98,7 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
     pub = h.helicsFederateRegisterPublication(fed, "injections", h.HELICS_DATA_TYPE_STRING, "")
     voltage_sub = h.helicsFederateRegisterSubscription(fed, "OpenDSS_Federate/voltage_out", "")
     solar_sub = h.helicsFederateRegisterSubscription(fed, "Voltage_Consumer_Federate/solar", "")
-    attack_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/breakpoints_attack", "")
+    bp_sub = h.helicsFederateRegisterSubscription(fed, "Adaptive_Controller_Federate/adaptive_breakpoints", "")
 
     h.helicsFederateEnterExecutingMode(fed)
 
@@ -154,9 +154,9 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
             solar_data = {}
 
         # Check for attack override (no blocking)
-        if h.helicsInputIsUpdated(attack_sub):
+        if h.helicsInputIsUpdated(bp_sub):
             try:
-                ao = h.helicsInputGetString(attack_sub)
+                ao = h.helicsInputGetString(bp_sub)
                 attack_override = eval(ao) or {}
             except:
                 attack_override = {}

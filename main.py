@@ -6,7 +6,7 @@ import pandas as pd
 import config  # Import the configuration
 
 # Custom federates
-from federates import opendss_federate, voltage_consumer_federate, inverter_federate, attack_federate
+from federates import opendss_federate, voltage_consumer_federate, inverter_federate, attack_federate, adaptive_controller_federate
 
 # =============================================================================
 # Working directory & data loading
@@ -58,7 +58,7 @@ hacks_list = config.hacks_list
 # =============================================================================
 def start_broker():
     global broker
-    broker = h.helicsCreateBroker("zmq", "", f"--federates=4 --loglevel=warning")
+    broker = h.helicsCreateBroker("zmq", "", f"--federates=5 --loglevel=warning")
 
 broker_thread = threading.Thread(target=start_broker, daemon=True)
 broker_thread.start()
@@ -85,6 +85,12 @@ attack_thread = threading.Thread(
     args=(hacks_list, breaking_points, config.SIMULATION_TIME, config.TIME_STEP)
 )
 
+# Adaptive Controller
+adaptive_controller_thread = threading.Thread(
+    target=adaptive_controller_federate.run_adaptive_controller_federate,
+    args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
+)
+
 # Inverter federate
 inverter_thread = threading.Thread(
     target=inverter_federate.run_inverter_federate,
@@ -98,12 +104,16 @@ opendss_thread.start()
 time.sleep(0.5)
 attack_thread.start()
 time.sleep(0.5)
+adaptive_controller_thread.start()
+time.sleep(0.5)
 inverter_thread.start()
+
 
 # Wait for completion
 consumer_thread.join()
 opendss_thread.join()
 attack_thread.join()
+adaptive_controller_thread.join()
 inverter_thread.join()
 
 # Shutdown broker
