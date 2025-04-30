@@ -27,15 +27,15 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     }
 
     # Controller parameters
-    delay_timer = 5
-    threshold = 0.002
+    delay_timer = 2
+    threshold = 2
     threshold = 0.05
     startup_time = 50
     adaptive_gain = 1000
     delta_t = 1
     high_pass_filter = 1
     gain = 1e8
-    sliding_window = 50
+    sliding_window = 20
     
 
     # Initialize controller state per node
