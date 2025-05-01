@@ -35,7 +35,7 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     delta_t = 1
     high_pass_filter = 1
     gain = 1e8
-    sliding_window = 20
+    sliding_window = 10
     
 
     # Initialize controller state per node
@@ -52,6 +52,7 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
         for node in node_names
     }
 
+    epsilon_history = {node.lower(): [] for node in node_names}
     y_history = {node.lower(): [] for node in node_names}
 
     current_time = 0.0
@@ -104,25 +105,28 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
 
                 # High-pass filter output and energy computation
                 psik = (vk - vkm1 - (high_pass_filter * delta_t / 2 - 1) * psikm1) / (1 + high_pass_filter * delta_t / 2)
-                epsilonk = gain * (psik ** 2)
-                yk = epsilonk
-                for n in range(sliding_window-1):
-                    yk += y_history[key][-n] if len(y_history[key]) > n else 0.0
-                yk /= sliding_window
+                if startup_time < current_time:
+                    epsilonk = gain * (psik ** 2)
+                else:
+                    epsilonk = 0
+                #yk = epsilonk
+                #for n in range(sliding_window-1):
+                #    yk += y_history[key][-n] if len(y_history[key]) > n else 0.0
+                #yk /= sliding_window
+                
+                epsilon_history[key].append(epsilonk)
+                # take the last sliding_window entries (or fewer, at startup)
+                recent_eps = epsilon_history[key][-sliding_window:]
+                # compute trend
+                yk = sum(recent_eps) / len(recent_eps)
 
                 # Store intermediate states
                 state['psi'][tc] = psik
                 state['epsilon'][tc] = epsilonk
                 state['y'][tc] = yk
 
-                # Zero out during startup
-                if current_time < startup_time:
-                    yk = 0.0
-                    state['psi'][tc] = 0.0
-                    state['epsilon'][tc] = 0.0
-                    state['y'][tc] = 0.0
-
                 # Save y for plotting
+                #epsilon_history[key].append(epsilonk)
                 y_history[key].append(yk)
 
                 # Delay-based update every delay_timer steps
@@ -179,6 +183,7 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     y_output_dir = os.path.join(config.BASE_DIR, "outputs")
     os.makedirs(y_output_dir, exist_ok=True)
     for key, y_vals in y_history.items():
+        np.save(os.path.join(y_output_dir, f"epsilon_values_{key}.npy"), np.array(epsilon_history[key]))
         np.save(os.path.join(y_output_dir, f"y_values_{key}.npy"), np.array(y_vals))
 
 

@@ -167,7 +167,6 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
         injections = {}
         for node in node_names:
             key = node.lower()
-
             # Measurements
             mv = voltage_data.get(key, voltage_data.get(key[1:] if key.startswith('s') else key, 1.0))
             ms = solar_data.get(key, 0.0)
@@ -178,6 +177,14 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
 
             # Segments list: use last known override or original as backup
             segments = last_override_segments.get(key, [{"pct": 1.0, "bp": orig_bp}])
+
+        # Debug: print breakpoints and percentages for node s701a
+            if key == 's701a':
+                print(f"[Time {current_time}] Node {key} segments:")
+                for idx, seg in enumerate(segments):
+                    pct = seg.get("pct", 0.0)
+                    bp  = seg.get("bp", orig_bp)
+                    print(f"  Segment {idx}: percentage={pct}, breakpoints={bp}")
 
             # Align state list length
             states = node_states[key]
