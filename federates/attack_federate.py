@@ -23,6 +23,8 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
 
     fed = h.helicsCreateValueFederate("Attack_Federate", fedinfo)
     pub = h.helicsFederateRegisterPublication(fed, "breakpoints_attack", h.HELICS_DATA_TYPE_STRING, "")
+    #attack_flag_pub = h.helicsFederateRegisterPublication(fed, "attack_flag", h.HELICS_DATA_TYPE_STRING, "")
+    attack_flag_pub = h.helicsFederateRegisterPublication(fed, "attack_flag", h.HELICS_DATA_TYPE_BOOLEAN, "")
     voltage_sub = h.helicsFederateRegisterSubscription(fed, "OpenDSS_Federate/voltage_out", "")
     h.helicsFederateEnterExecutingMode(fed)
 
@@ -100,6 +102,8 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
 
         # 2) Build and publish attack message
         attack_msg = {}
+        attack_flag = False
+
         for node in pv_devices:
             orig_bp = node_bps[node]
             remaining = 1.0
@@ -137,10 +141,16 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
                 segments.append({"pct": seg_pct, "bp": bp_list})
             # healthy segment first
             healthy = {"pct": round(remaining, 4), "bp": orig_bp}
+            if remaining < 1.0:
+                attack_flag = True
             attack_msg[node] = [healthy] + segments
 
         #print(f"[Attack Federate] t={current_time:.1f} → {attack_msg}")
         h.helicsPublicationPublishString(pub, str(attack_msg))
+
+        # publish attack flag
+        #h.helicsPublicationPublishString(attack_flag_pub, str(attack_flag))
+        h.helicsPublicationPublishBoolean(attack_flag_pub, attack_flag)
 
         # 3) Advance time
         next_t = current_time + time_step

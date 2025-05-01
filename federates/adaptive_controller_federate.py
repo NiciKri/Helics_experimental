@@ -15,6 +15,7 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     fed = h.helicsCreateValueFederate("Adaptive_Controller_Federate", fedinfo)
     voltage_sub = h.helicsFederateRegisterSubscription(fed, "OpenDSS_Federate/voltage_out", "")
     attack_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/breakpoints_attack", "")
+    attack_flag_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/attack_flag", "")
     pub = h.helicsFederateRegisterPublication(fed, "adaptive_breakpoints", h.HELICS_DATA_TYPE_STRING, "")
 
     h.helicsFederateEnterExecutingMode(fed)
@@ -27,11 +28,10 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     }
 
     # Controller parameters
-    delay_timer = 2
-    threshold = 2
-    threshold = 0.05
+    delay_timer = 1
+    threshold = 0.5
     startup_time = 50
-    adaptive_gain = 1000
+    adaptive_gain = 500
     delta_t = 1
     high_pass_filter = 1
     gain = 1e8
@@ -69,6 +69,14 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
         except:
             voltage_data = {}
 
+        flag_timeout = 0
+        while not h.helicsInputIsUpdated(attack_flag_sub) and flag_timeout < 100:
+            time.sleep(0.01)
+            flag_timeout += 1
+        try:
+            attack_flag = h.helicsInputGetBoolean(attack_flag_sub)
+        except:
+            attack_flag = False
         # Receive attack data
         attack_data = {}
         attack_timeout = 0
@@ -139,7 +147,10 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
                     # Compute new control offsets
                     state['up'][1] = adaptive_control(adaptive_gain, vk, vkmdelay, up_old, threshold, yk, current_time, startup_time)
                     state['uq'][1] = adaptive_control(adaptive_gain, vk, vkmdelay, uq_old, threshold, yk, current_time, startup_time)
-                                                     
+
+                    if not attack_flag:
+                        state['up'][1] = 0.0
+                        state['uq'][1] = 0.0
 
                     # Shift old values
                     state['up'][0] = state['up'][1]

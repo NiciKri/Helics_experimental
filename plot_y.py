@@ -9,7 +9,7 @@ epsion_vals = np.load(os.path.join(output_dir, f"epsilon_values_{node}.npy"))
 y_vals = np.load(os.path.join(output_dir, f"y_values_{node}.npy"))
 
 plot_y_flag = True
-plot_epsilon_flag = True
+plot_epsilon_flag = False
 
 def plot_y():
     plt.figure(figsize=(8,4))
