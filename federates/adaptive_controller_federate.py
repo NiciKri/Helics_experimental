@@ -36,7 +36,8 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     high_pass_filter = 1
     gain = 1e8
     sliding_window = 10
-    
+
+    save_nodes = ['s701a', 's701b', 's701c', 's727c']
 
     # Initialize controller state per node
     controller_state = {
@@ -52,8 +53,11 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
         for node in node_names
     }
 
+    # Histories for saving
     epsilon_history = {node.lower(): [] for node in node_names}
     y_history = {node.lower(): [] for node in node_names}
+    up_history = {node.lower(): [] for node in node_names}
+    uq_history = {node.lower(): [] for node in node_names}
 
     current_time = 0.0
     while current_time < simulation_time:
@@ -77,6 +81,7 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
             attack_flag = h.helicsInputGetBoolean(attack_flag_sub)
         except:
             attack_flag = False
+
         # Receive attack data
         attack_data = {}
         attack_timeout = 0
@@ -93,17 +98,15 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
 
         for node in node_names:
             key = node.lower()
-
-            v_k = voltage_data.get(key, voltage_data.get(key[1:] if key.startswith('s') else key, 1.0))
-            controller_state[key]['v_hist'].append(v_k)
-
             state = controller_state[key]
+            # Append current voltage
+            v_k = voltage_data.get(key, voltage_data.get(key[1:] if key.startswith('s') else key, 1.0))
+            state['v_hist'].append(v_k)
             tc = state['time_counter']
 
             segments = attack_data.get(key, [
                 {"pct": 1.0, "bp": healthy_breakpoints.get(key, [0.98, 1.01, 1.02, 1.05, 1.07])}
             ])
-
             new_segments = [seg.copy() for seg in segments]
 
             if len(state['v_hist']) >= 2:
@@ -113,49 +116,42 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
 
                 # High-pass filter output and energy computation
                 psik = (vk - vkm1 - (high_pass_filter * delta_t / 2 - 1) * psikm1) / (1 + high_pass_filter * delta_t / 2)
-                if startup_time < current_time:
-                    epsilonk = gain * (psik ** 2)
-                else:
-                    epsilonk = 0
-                #yk = epsilonk
-                #for n in range(sliding_window-1):
-                #    yk += y_history[key][-n] if len(y_history[key]) > n else 0.0
-                #yk /= sliding_window
-                
+                epsilonk = gain * (psik ** 2) if current_time > startup_time else 0
                 epsilon_history[key].append(epsilonk)
-                # take the last sliding_window entries (or fewer, at startup)
+
                 recent_eps = epsilon_history[key][-sliding_window:]
-                # compute trend
                 yk = sum(recent_eps) / len(recent_eps)
+                y_history[key].append(yk)
 
                 # Store intermediate states
                 state['psi'][tc] = psik
                 state['epsilon'][tc] = epsilonk
                 state['y'][tc] = yk
 
-                # Save y for plotting
-                #epsilon_history[key].append(epsilonk)
-                y_history[key].append(yk)
-
-                # Delay-based update every delay_timer steps
+                # Delay-based update
                 if (delay_timer != 0 and tc + 1 == delay_timer) or delay_timer == 0:
-                    vk = state['psi'][tc]
+                    vk_del = state['psi'][tc]
                     vkmdelay = state['psi'][0]
                     up_old = state['up'][0]
                     uq_old = state['uq'][0]
 
                     # Compute new control offsets
-                    state['up'][1] = adaptive_control(adaptive_gain, vk, vkmdelay, up_old, threshold, yk, current_time, startup_time)
-                    state['uq'][1] = adaptive_control(adaptive_gain, vk, vkmdelay, uq_old, threshold, yk, current_time, startup_time)
+                    state['up'][1] = adaptive_control(adaptive_gain, vk_del, vkmdelay, up_old, threshold, yk, current_time, startup_time)
+                    state['uq'][1] = adaptive_control(adaptive_gain, vk_del, vkmdelay, uq_old, threshold, yk, current_time, startup_time)
 
                     if not attack_flag:
                         state['up'][1] = 0.0
                         state['uq'][1] = 0.0
 
+                    # Record up and uq
+                    up_history[key].append(state['up'][1])
+                    uq_history[key].append(state['uq'][1])
+
                     # Shift old values
                     state['up'][0] = state['up'][1]
                     state['uq'][0] = state['uq'][1]
 
+                    # Adjust breakpoints
                     if new_segments:
                         old_bps = new_segments[0]['bp']
                         if len(old_bps) == 5:
@@ -167,21 +163,16 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
                                 old_bps[4] - state['up'][1],
                             ])
                             new_segments[0]['bp'] = new_bps.tolist()
-
-                            # Print the breakpoint shift
                             if key == "s701a":
                                 print(f"[Adaptive Controller] Node {key}: Δq={state['uq'][1]:.6f}, Δp={state['up'][1]:.6f}, new breakpoints={new_bps.tolist()}")
-
-                    # Reset counter
                     state['time_counter'] = 0
                 else:
                     state['time_counter'] += 1
 
             adaptive_breakpoints[key] = new_segments
 
+        # Publish and advance time
         h.helicsPublicationPublishString(pub, str(adaptive_breakpoints))
-
-        # Advance time
         next_time = current_time + time_step
         current_time = h.helicsFederateRequestTime(fed, next_time)
 
@@ -190,12 +181,14 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     h.helicsFederateFinalize(fed)
     print("[Adaptive Controller Federate] Finalized.")
 
-    # Save y_history for later plotting
-    y_output_dir = os.path.join(config.BASE_DIR, "outputs")
-    os.makedirs(y_output_dir, exist_ok=True)
-    for key, y_vals in y_history.items():
-        np.save(os.path.join(y_output_dir, f"epsilon_values_{key}.npy"), np.array(epsilon_history[key]))
-        np.save(os.path.join(y_output_dir, f"y_values_{key}.npy"), np.array(y_vals))
+    # Save histories
+    output_dir = os.path.join(config.BASE_DIR, "outputs")
+    os.makedirs(output_dir, exist_ok=True)
+    for key in save_nodes:
+        np.save(os.path.join(output_dir, f"epsilon_values_{key}.npy"), np.array(epsilon_history[key]))
+        np.save(os.path.join(output_dir, f"y_values_{key}.npy"), np.array(y_history[key]))
+        np.save(os.path.join(output_dir, f"up_values_{key}.npy"), np.array(up_history[key]))
+        np.save(os.path.join(output_dir, f"uq_values_{key}.npy"), np.array(uq_history[key]))
 
 
 def adaptive_control(adaptive_gain, vk, vkmdelay, ukmdelay, threshold, yk, current_time, startup_time=50):
