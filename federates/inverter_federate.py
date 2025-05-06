@@ -202,11 +202,11 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
 
         # Debug: print breakpoints and percentages for node s701a
             if key == 's701a':
-                #print(f"[Time {current_time}] Node {key} segments:")
+                print(f"[Time {current_time}] Node {key} segments:")
                 for idx, seg in enumerate(segments):
                     pct = seg.get("pct", 0.0)
                     bp  = seg.get("bp", orig_bp)
-                    #print(f"  Segment {idx}: percentage={pct}, breakpoints={bp}")
+                    print(f"  Segment {idx}: percentage={pct}, breakpoints={bp}")
 
             # Align state list length
             states = node_states[key]

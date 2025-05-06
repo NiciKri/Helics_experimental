@@ -85,7 +85,7 @@ def run_opendss_federate():
             print(f"[WARN] Invalid inverter injection string: '{inverter_injections_str}'")
         
         # Process net demand and adjust using inverter active and reactive power injections.
-        print_flag = False  # flag to control printing of load values
+        print_flag = True  # flag to control printing of load values
         for bus, kw in load.items():
             dss_bus = csv_to_dss_name(bus)
             modified_kw = kw
