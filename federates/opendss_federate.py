@@ -85,7 +85,7 @@ def run_opendss_federate():
             print(f"[WARN] Invalid inverter injection string: '{inverter_injections_str}'")
         
         # Process net demand and adjust using inverter active and reactive power injections.
-        print_flag = True  # flag to control printing of load values
+        print_flag = False  # flag to control printing of load values
         for bus, kw in load.items():
             dss_bus = csv_to_dss_name(bus)
             modified_kw = kw
@@ -98,7 +98,7 @@ def run_opendss_federate():
                     modified_kw = kw - p_inj
                     modified_kvar = modified_kvar - q_inj
                     if print_flag:
-                        print(f"[INFO] t={granted_time} | Node {dss_bus}: load={kw}, inverter p_injection={p_inj}, "
+                        print(f"[OpenDSS] t={granted_time} | Node {dss_bus}: load={kw}, inverter p_injection={p_inj}, "
                               f"modified load={modified_kw}, inverter q_injection={q_inj}, modified kvar load={modified_kvar}")
                         print_flag = False  # Only print once per time step
                 except Exception as e:

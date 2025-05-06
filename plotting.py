@@ -24,7 +24,7 @@ save_flag  = True
 
 # --- New: set start time for plotting (in seconds) ---
 #   e.g. 50 will skip everything before time=50s. Use None to plot from time=0.
-start_time = 50
+start_time = 0
 
 # --- New: voltage axis limits ---
 # Set to numeric values for fixed limits, or None for automatic scaling.

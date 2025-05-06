@@ -14,7 +14,8 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
 
     fed = h.helicsCreateValueFederate("Adaptive_Controller_Federate", fedinfo)
     voltage_sub = h.helicsFederateRegisterSubscription(fed, "OpenDSS_Federate/voltage_out", "")
-    attack_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/breakpoints_attack", "")
+    #attack_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/breakpoints_attack", "")
+    healthy_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/healthy_breakpoints", "")
     attack_flag_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/attack_flag", "")
     pub = h.helicsFederateRegisterPublication(fed, "adaptive_breakpoints", h.HELICS_DATA_TYPE_STRING, "")
 
@@ -85,11 +86,11 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
         # Receive attack data
         attack_data = {}
         attack_timeout = 0
-        while not h.helicsInputIsUpdated(attack_sub) and attack_timeout < 100:
+        while not h.helicsInputIsUpdated(healthy_sub) and attack_timeout < 100:
             time.sleep(0.01)
             attack_timeout += 1
         try:
-            ao = h.helicsInputGetString(attack_sub)
+            ao = h.helicsInputGetString(healthy_sub)
             attack_data = eval(ao) if ao.strip().startswith('{') else {}
         except:
             attack_data = {}

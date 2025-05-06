@@ -98,7 +98,8 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
     pub = h.helicsFederateRegisterPublication(fed, "injections", h.HELICS_DATA_TYPE_STRING, "")
     voltage_sub = h.helicsFederateRegisterSubscription(fed, "OpenDSS_Federate/voltage_out", "")
     solar_sub = h.helicsFederateRegisterSubscription(fed, "Voltage_Consumer_Federate/solar", "")
-    bp_sub = h.helicsFederateRegisterSubscription(fed, "Adaptive_Controller_Federate/adaptive_breakpoints", "")
+    healthy_bp_sub = h.helicsFederateRegisterSubscription(fed, "Adaptive_Controller_Federate/adaptive_breakpoints", "")
+    hacked_bp_sub = h.helicsFederateRegisterSubscription(fed, "Attack_Federate/breakpoints_attack", "")
 
     h.helicsFederateEnterExecutingMode(fed)
 
@@ -122,6 +123,10 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
 
     # Cache for last received segments per node (override or original)
     last_override_segments = {}
+    healthy_last_override_segments = {}
+    attacked_last_override_segments = {}
+    healthy_override = {}
+    attack_override = {}
     for node in node_names:
         key = node.lower()
         orig_bp = node_breakpoints.get(key, DEFAULT_CONTROL_SETTING)
@@ -154,15 +159,32 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
             solar_data = {}
 
         # Check for attack override (no blocking)
-        if h.helicsInputIsUpdated(bp_sub):
+        if h.helicsInputIsUpdated(healthy_bp_sub):
             try:
-                ao = h.helicsInputGetString(bp_sub)
+                ho = h.helicsInputGetString(healthy_bp_sub)
+                healthy_override = eval(ho) or {}
+            except:
+                healthy_override = {}
+            # Update cached segments with latest override
+            for key, segs in healthy_override.items():
+                healthy_last_override_segments[key] = segs
+        
+        if h.helicsInputIsUpdated(hacked_bp_sub):
+            try:
+                ao = h.helicsInputGetString(hacked_bp_sub)
                 attack_override = eval(ao) or {}
             except:
                 attack_override = {}
             # Update cached segments with latest override
             for key, segs in attack_override.items():
-                last_override_segments[key] = segs
+                attacked_last_override_segments[key] = segs
+
+        for key in node_states.keys():                         # node_states was created from node_names
+            orig_bp = node_breakpoints.get(key, DEFAULT_CONTROL_SETTING)
+            base = [{"pct": 1.0, "bp": orig_bp}]
+            healthy_segs = healthy_override.get(key, base)
+            hacked_segs  = attack_override.get(key, [])
+            last_override_segments[key] = healthy_segs + hacked_segs
 
         injections = {}
         for node in node_names:
@@ -180,11 +202,11 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
 
         # Debug: print breakpoints and percentages for node s701a
             if key == 's701a':
-                print(f"[Time {current_time}] Node {key} segments:")
+                #print(f"[Time {current_time}] Node {key} segments:")
                 for idx, seg in enumerate(segments):
                     pct = seg.get("pct", 0.0)
                     bp  = seg.get("bp", orig_bp)
-                    print(f"  Segment {idx}: percentage={pct}, breakpoints={bp}")
+                    #print(f"  Segment {idx}: percentage={pct}, breakpoints={bp}")
 
             # Align state list length
             states = node_states[key]

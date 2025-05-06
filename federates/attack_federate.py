@@ -22,7 +22,9 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
     h.helicsFederateInfoSetTimeProperty(fedinfo, h.HELICS_PROPERTY_TIME_DELTA, time_step)
 
     fed = h.helicsCreateValueFederate("Attack_Federate", fedinfo)
-    pub = h.helicsFederateRegisterPublication(fed, "breakpoints_attack", h.HELICS_DATA_TYPE_STRING, "")
+    attack_pub = h.helicsFederateRegisterPublication(fed, "breakpoints_attack", h.HELICS_DATA_TYPE_STRING, "")
+    healthy_pub = h.helicsFederateRegisterPublication(fed, "healthy_breakpoints", h.HELICS_DATA_TYPE_STRING, "")
+    #pub = h.helicsFederateRegisterPublication(fed, "breakpoints_attack_", h.HELICS_DATA_TYPE_STRING, "")
     #attack_flag_pub = h.helicsFederateRegisterPublication(fed, "attack_flag", h.HELICS_DATA_TYPE_STRING, "")
     attack_flag_pub = h.helicsFederateRegisterPublication(fed, "attack_flag", h.HELICS_DATA_TYPE_BOOLEAN, "")
     voltage_sub = h.helicsFederateRegisterSubscription(fed, "OpenDSS_Federate/voltage_out", "")
@@ -101,7 +103,9 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
                     pass
 
         # 2) Build and publish attack message
+        full_attack_msg = {}
         attack_msg = {}
+        healthy_msg = {}
         attack_flag = False
 
         for node in pv_devices:
@@ -143,10 +147,20 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
             healthy = {"pct": round(remaining, 4), "bp": orig_bp}
             if remaining < 1.0:
                 attack_flag = True
-            attack_msg[node] = [healthy] + segments
+            full_attack_msg[node] = [healthy] + segments
+            healthy_msg[node] = [healthy]
+            attack_msg[node] = segments
+            # print messages for node s701a
+            #if node == "s701a":
+            #    print(f"[Time {current_time}] Node {node} segments:")
+            #    print(f"  Healthy: {healthy}")
+            #    print(f"  Attack: {segments}")
+        
 
         #print(f"[Attack Federate] t={current_time:.1f} → {attack_msg}")
-        h.helicsPublicationPublishString(pub, str(attack_msg))
+        h.helicsPublicationPublishString(healthy_pub, str(healthy_msg))
+        h.helicsPublicationPublishString(attack_pub, str(attack_msg))
+        #h.helicsPublicationPublishString(pub, str(full_attack_msg))
 
         # publish attack flag
         #h.helicsPublicationPublishString(attack_flag_pub, str(attack_flag))
