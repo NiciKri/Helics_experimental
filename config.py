@@ -9,6 +9,8 @@ BASE_DIR = r"C:/Users/nicol/Helics_experimental"
 # Data directory (you can adjust this if needed)
 DATA_DIR = BASE_DIR + r"/data"
 
+SAVE_LOGS = False  # Set to True to save logs, False to skip saving
+
 # Simulation parameters
 SIMULATION_TIME = 300  # Total simulation time in seconds
 TIME_STEP = 1.0        # Time step in seconds
