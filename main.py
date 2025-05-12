@@ -6,7 +6,10 @@ import pandas as pd
 import config  # Import the configuration
 
 # Custom federates
-from federates import opendss_federate, voltage_consumer_federate, inverter_federate, attack_federate, adaptive_controller_federate, logger_federate
+from federates import opendss_federate, voltage_consumer_federate, inverter_federate, attack_federate, logger_federate
+
+# Controllers
+from Controllers import adaptive_controller_federate, DRL_controller_federate
 
 # =============================================================================
 # Working directory & data loading
@@ -86,8 +89,12 @@ attack_thread = threading.Thread(
 )
 
 # Adaptive Controller
-adaptive_controller_thread = threading.Thread(
+"""adaptive_controller_thread = threading.Thread(
     target=adaptive_controller_federate.run_adaptive_controller_federate,
+    args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
+)"""
+adaptive_controller_thread = threading.Thread(
+    target=DRL_controller_federate.run_DRL_controller_federate,
     args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
 )
 

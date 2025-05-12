@@ -1,4 +1,4 @@
 import random
 import numbers
-
-print(round(random.uniform(0.05, 0.40), 2))
+from gym import envs
+print([spec.id for spec in envs.registry.values()])
