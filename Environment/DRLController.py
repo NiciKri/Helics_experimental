@@ -83,46 +83,48 @@ class DRLControllerEnv(gym.Env):
     def _thread_wrapper(self, fn, args):
         """Wrap federate functions to log entry/exit."""
         def wrapped():
-            logging.debug(f"FEDERATE START {fn.__name__}")
+            #logging.debug(f"FEDERATE START {fn.__name__}")
             try:
                 fn(*args)
-            finally:
-                logging.debug(f"FEDERATE EXIT  {fn.__name__}")
+            except:
+                print(f"Error in {fn.__name__}")
+            #finally:
+                #logging.debug(f"FEDERATE EXIT  {fn.__name__}")
         return wrapped
 
     def _teardown(self):
         logging.debug("ENTER teardown_simulation")
         # finalize controller
         if getattr(self, 'fed', None):
-            logging.debug("disconnecting controller federate")
+            #logging.debug("disconnecting controller federate")
             h.helicsFederateDisconnect(self.fed)
             h.helicsFederateFinalize(self.fed)
             self.fed = None
-            logging.debug("controller federate finalized")
+            #logging.debug("controller federate finalized")
         # kill old broker
         if getattr(self, 'broker', None) and h.helicsBrokerIsConnected(self.broker):
-            logging.debug("disconnecting broker")
+            #logging.debug("disconnecting broker")
             h.helicsBrokerDisconnect(self.broker)
             h.helicsBrokerFree(self.broker)
             self.broker = None
             logging.debug("broker freed")
         # join threads
         for t in getattr(self, 'threads', []):
-            logging.debug(f"joining thread {t.name}")
+            #logging.debug(f"joining thread {t.name}")
             t.join(timeout=5.0)
-            logging.debug(f"thread {t.name} joined")
+            #logging.debug(f"thread {t.name} joined")
         self.threads = []
         logging.debug("EXIT teardown_simulation")
 
     def reset(self):
-        logging.debug("=== RESET start ===")
+        #logging.debug("=== RESET start ===")
         # Tear down previous simulation
         if getattr(self, "broker", None):
-            logging.debug("Existing broker detected; tearing down")
+            #logging.debug("Existing broker detected; tearing down")
             self._teardown()
 
         # -- Start broker --
-        logging.debug("Creating new HELICS broker")
+        #logging.debug("Creating new HELICS broker")
         self.broker = h.helicsCreateBroker('zmq', '', f'--federates=6 --loglevel=warning')
         logging.debug(f"Broker handle: {self.broker}")
         time.sleep(1)
@@ -145,13 +147,13 @@ class DRLControllerEnv(gym.Env):
                 name=fn.__name__,
                 daemon=True
             )
-            logging.debug(f"Starting thread {fn.__name__}")
+            #logging.debug(f"Starting thread {fn.__name__}")
             t.start()
             self.threads.append(t)
             time.sleep(0.5)
 
         # -- Create controller federate --
-        logging.debug("Creating controller federate")
+        #logging.debug("Creating controller federate")
         fi = h.helicsCreateFederateInfo()
         h.helicsFederateInfoSetCoreName(fi, 'Adaptive_Controller_Federate')
         h.helicsFederateInfoSetCoreTypeFromString(fi, 'zmq')
@@ -167,18 +169,18 @@ class DRLControllerEnv(gym.Env):
             self.fed, 'adaptive_breakpoints', h.HELICS_DATA_TYPE_STRING, '')
         h.helicsFederateEnterExecutingMode(self.fed)
         self.current_time = h.helicsFederateRequestTime(self.fed, 0.0)
-        logging.debug("Controller federate entered execution mode")
+        #logging.debug("Controller federate entered execution mode")
 
         # initial observation
         obs = self._read_obs()
-        logging.debug("=== RESET complete ===")
+        #logging.debug("=== RESET complete ===")
         return obs
 
     def step(self, action):
         # Publish action as breakpoints
         dp, dq = float(action[0]), float(action[1])
         adaptive = {n.lower(): [{'pct': 1.0, 'bp': [-dq, -dq, -dq, +dp, +dp]}] for n in node_names}
-        logging.debug(f"Publishing action: dp={dp}, dq={dq}")
+        #logging.debug(f"Publishing action: dp={dp}, dq={dq}")
         h.helicsPublicationPublishString(self.pub, str(adaptive))
 
         # time advance
@@ -213,7 +215,8 @@ class DRLControllerEnv(gym.Env):
         dt, m, gain = self.dt, self.m, self.gain
         psi_k = (vk - vkm1 - (m * dt / 2 - 1) * psikm1) / (1 + m * dt / 2)
         self.psi_prev = psi_k
-        eps_k = gain * psi_k**2 if self.current_time > self.startup_time else 0.0
+        eps_k = gain * psi_k**2 
+        # if self.current_time > self.startup_time else 0.0
         self.epsilon_history.append(eps_k)
         yk = np.mean(self.epsilon_history) if self.epsilon_history else 0.0
 
