@@ -31,6 +31,7 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     # Controller parameters
     delay_timer = 1
     threshold = 0.5
+    #threshold = 1e6
     startup_time = 50
     adaptive_gain = 500
     delta_t = 1

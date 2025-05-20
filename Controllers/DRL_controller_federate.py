@@ -60,7 +60,7 @@ def run_DRL_controller_federate(healthy_breakpoints_df, node_names, simulation_t
     uq_history = {node.lower(): [] for node in node_names}
 
     # 4) Initialize Gym environment and agent
-    env = DRLControllerEnv(simulation_time=simulation_time, time_step=time_step)  # TODO: replace with your actual Gym environment
+    env = DRLControllerEnv(simulation_time=simulation_time, time_step=time_step)  # replace with your actual Gym environment
     observation = env.reset()
     # If you have a policy/agent, initialize it here:
     # agent = YourRLAgent(...)

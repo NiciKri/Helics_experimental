@@ -16,20 +16,31 @@ plt.rcParams.update({
 })
 
 # --- User‐configurable settings ---
-save_dir   = r"C:\Users\nicol\MT_docs_graphs\adaptive_control_results\single_attack"
-save_name  = "overlapping_1_full_adaptive.pdf"
-save_path  = os.path.join(save_dir, save_name)
-plot_flag  = True
-save_flag  = True
+save_dir      = r"C:\Users\nicol\MT_docs_graphs\Midterm"
+save_name     = "adaptive.png"
+save_path     = os.path.join(save_dir, save_name)
+plot_flag     = True
+save_flag     = False
 
 # --- New: set start time for plotting (in seconds) ---
 #   e.g. 50 will skip everything before time=50s. Use None to plot from time=0.
-start_time = 0
+start_time    = 50
 
 # --- New: voltage axis limits ---
 # Set to numeric values for fixed limits, or None for automatic scaling.
-vmin = 0.9800
-vmax = 1.0050
+vmin, vmax    = 0.9800, 1.0050
+#vmin, vmax = None, None
+
+# --- New: width scaling factor ---
+# 1.0 = base width, >1 for wider, <1 for narrower
+width_scale   = 1.5
+
+# --- Base figure size (width, height) in inches ---
+base_figsize  = (10, 6)
+
+# --- Compute scaled figure size ---
+fig_width     = base_figsize[0] * width_scale
+fig_height    = base_figsize[1]
 
 # ensure save directory exists
 os.makedirs(save_dir, exist_ok=True)
@@ -51,12 +62,10 @@ if not nodes_to_plot:
 else:
     missing = [n for n in nodes_to_plot if n not in df.columns]
     if missing:
-        print(f"[ERROR] The following nodes are missing in the CSV: {missing}")
-        print("Available nodes:", list(df.columns))
-        exit()
+        raise ValueError(f"[ERROR] The following nodes are missing in the CSV: {missing}")
 
 # --- Plotting ---
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(fig_width, fig_height))
 for node in nodes_to_plot:
     plt.plot(df['time'], df[node], label=node)
 
@@ -66,21 +75,17 @@ plt.ylabel("Voltage Magnitude [pu]")
 
 # apply fixed or automatic y‐limits
 if vmin is not None or vmax is not None:
-    # grab current autoscaled limits
     lo, hi = plt.ylim()
     new_lo = vmin if vmin is not None else lo
     new_hi = vmax if vmax is not None else hi
     plt.ylim(new_lo, new_hi)
 
 plt.grid(True)
-#legend on bottom right
-
 plt.legend(loc='lower right')
 plt.tight_layout()
 
 # --- Save to disk ---
 if save_flag:
-    # Save figure
     plt.savefig(save_path, dpi=300)
     print(f"Plot saved to: {save_path}")
 

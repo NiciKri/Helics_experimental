@@ -89,14 +89,14 @@ attack_thread = threading.Thread(
 )
 
 # Adaptive Controller
-"""adaptive_controller_thread = threading.Thread(
+adaptive_controller_thread = threading.Thread(
     target=adaptive_controller_federate.run_adaptive_controller_federate,
     args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
-)"""
-adaptive_controller_thread = threading.Thread(
+)
+"""adaptive_controller_thread = threading.Thread(
     target=DRL_controller_federate.run_DRL_controller_federate,
     args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
-)
+)"""
 
 # Inverter federate
 inverter_thread = threading.Thread(
@@ -108,7 +108,6 @@ logger_thread = threading.Thread(
     target=logger_federate.run_logging_federate,
     args=(config.SIMULATION_TIME, config.TIME_STEP)
 )
-
 
 
 # Start in sequence
@@ -126,12 +125,17 @@ logger_thread.start()
 
 
 # Wait for completion
-consumer_thread.join()
-opendss_thread.join()
-attack_thread.join()
-adaptive_controller_thread.join()
-inverter_thread.join()
-logger_thread.join()
+#consumer_thread.join()
+#opendss_thread.join()
+#attack_thread.join()
+#adaptive_controller_thread.join()
+#inverter_thread.join()
+#logger_thread.join()
+
+print("All federates started.")
+logger_thread.join() # INFO: I don't know why this is needed, but it doesn't work without it
+print("Logger thread completed.")
+
 
 # Shutdown broker
 if 'broker' in globals() and h.helicsBrokerIsConnected(broker):
