@@ -206,7 +206,7 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
                 for idx, seg in enumerate(segments):
                     pct = seg.get("pct", 0.0)
                     bp  = seg.get("bp", orig_bp)
-                    print(f"  Segment {idx}: percentage={pct}, breakpoints={bp}")
+                    print(f"[Inverter Federate]  Segment {idx}: percentage={pct}, breakpoints={bp}")
 
             # Align state list length
             states = node_states[key]
@@ -235,6 +235,9 @@ def run_inverter_federate(node_names, simulation_time=30, time_step=1.0,
                 q_total += q_seg
 
             injections[key] = {"p": p_total, "q": q_total}
+            # Debug: print injections for node s701a
+            if key == 's701a':
+                print(f"[Inverter Federate] [Time {current_time}] Node {key} injections: p={p_total}, q={q_total}")
 
         # Publish injections
         h.helicsPublicationPublishString(pub, str(injections))

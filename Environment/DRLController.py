@@ -26,8 +26,8 @@ logging.basicConfig(
 )
 
 # Load scenario data once
-solar_data = pd.read_csv(f"{config.DATA_DIR}/solar_data.csv").assign(time=lambda df: df.index)
-load_data = (
+test_solar_data = pd.read_csv(f"{config.DATA_DIR}/solar_data.csv").assign(time=lambda df: df.index)
+test_load_data = (
     pd.read_csv(f"{config.DATA_DIR}/load_data.csv")
     .assign(time=lambda df: df.index)
     .sort_values('time')
@@ -37,12 +37,17 @@ breaking_points = pd.read_csv(f"{config.DATA_DIR}/solar_VV_breakpoints.csv")
 breaking_points.columns = breaking_points.columns.str.replace('_pv$', '', regex=True)
 breaking_points.columns = breaking_points.columns.str.replace('S', 's')
 # max solar and sbar
-max_solar = solar_data.drop(columns='time').max()
+max_solar = test_solar_data.drop(columns='time').max()
 sbar_df = pd.DataFrame([max_solar])
 sbar_df.columns = sbar_df.columns.str.replace('S', 's')
 # hacks list and node names
 hacks_list = config.hacks_list
-node_names = [c for c in solar_data.columns if c != 'time']
+# normalize node names to match breaking_points columns (Option A)
+node_names = [
+    c.replace('_pv', '').lower()
+    for c in test_solar_data.columns
+    if c != 'time'
+]
 
 class DRLControllerEnv(gym.Env):
     """Gym wrapper around HELICS co-simulation with a DRL-based controller federate."""
@@ -50,28 +55,43 @@ class DRLControllerEnv(gym.Env):
 
     def __init__(self, simulation_time, time_step):
         super().__init__()
-        # OBS: [vk, vkm1, psi_prev, epsilonk, yk]
-        self.observation_space = spaces.Box(-np.inf, np.inf, shape=(5,), dtype=np.float32)
-        # ACT: [Δp, Δq]
-        max_delta = 1.0
-        self.action_space = spaces.Box(
-            low=np.array([-max_delta, -max_delta], np.float32),
-            high=np.array([+max_delta, +max_delta], np.float32),
-            dtype=np.float32
-        )
+        # simulation parameters
         self.sim_time = simulation_time
         self.dt = time_step
 
-        # internal state
-        self.v_hist = deque(maxlen=2)
-        self.psi_prev = 0.0
-        self.epsilon_history = deque(maxlen=10)
+        # nodes
+        self.node_names = node_names
+        self.n_nodes = len(self.node_names)
+
+        # Action: one (Δp, Δq) per node
+        max_delta = 1.0
+        self.action_space = spaces.Box(
+            low=-max_delta,
+            high=+max_delta,
+            shape=(self.n_nodes, 2),
+            dtype=np.float32
+        )
+
+        # Observation: [vk, v(k-1), psi, epsilon, y] for each node
+        self.observation_space = spaces.Box(
+            low=-np.inf,
+            high=+np.inf,
+            shape=(self.n_nodes, 5),
+            dtype=np.float32
+        )
+
+        # controller parameters
         self.startup_time = 50
         self.gain = 1e8
         self.m = 1  # high-pass filter
-        self.current_time = 0.0
+
+        # per-node state
+        self.v_hist = {n: deque(maxlen=2) for n in self.node_names}
+        self.psi_prev = {n: 0.0 for n in self.node_names}
+        self.epsilon_history = {n: deque(maxlen=10) for n in self.node_names}
 
         # HELICS attributes
+        self.controller_on = True
         self.broker = None
         self.threads = []
         self.fed = None
@@ -79,121 +99,145 @@ class DRLControllerEnv(gym.Env):
         self.sub_healthy = None
         self.sub_flag = None
         self.pub = None
+        self.current_time = 0.0
 
     def _thread_wrapper(self, fn, args):
-        """Wrap federate functions to log entry/exit."""
         def wrapped():
-            #logging.debug(f"FEDERATE START {fn.__name__}")
             try:
                 fn(*args)
-            except:
+            except Exception:
                 print(f"Error in {fn.__name__}")
-            #finally:
-                #logging.debug(f"FEDERATE EXIT  {fn.__name__}")
         return wrapped
 
     def _teardown(self):
         logging.debug("ENTER teardown_simulation")
-        # finalize controller
-        if getattr(self, 'fed', None):
-            #logging.debug("disconnecting controller federate")
+        if self.fed:
             h.helicsFederateDisconnect(self.fed)
             h.helicsFederateFinalize(self.fed)
             self.fed = None
-            #logging.debug("controller federate finalized")
-        # kill old broker
-        if getattr(self, 'broker', None) and h.helicsBrokerIsConnected(self.broker):
-            #logging.debug("disconnecting broker")
+        if self.broker and h.helicsBrokerIsConnected(self.broker):
             h.helicsBrokerDisconnect(self.broker)
             h.helicsBrokerFree(self.broker)
             self.broker = None
             logging.debug("broker freed")
-        # join threads
-        for t in getattr(self, 'threads', []):
-            #logging.debug(f"joining thread {t.name}")
+        for t in self.threads:
             t.join(timeout=5.0)
-            #logging.debug(f"thread {t.name} joined")
         self.threads = []
         logging.debug("EXIT teardown_simulation")
 
     def reset(self):
-        #logging.debug("=== RESET start ===")
-        # Tear down previous simulation
-        if getattr(self, "broker", None):
-            #logging.debug("Existing broker detected; tearing down")
+        # teardown if needed
+        if self.broker:
             self._teardown()
 
-        # -- Start broker --
-        #logging.debug("Creating new HELICS broker")
+        # start broker
         self.broker = h.helicsCreateBroker('zmq', '', f'--federates=6 --loglevel=warning')
         logging.debug(f"Broker handle: {self.broker}")
         time.sleep(1)
 
-        # -- Launch non-controller federates --
+        # launch non-controller federates
         funcs = [
             (voltage_consumer_federate.run_voltage_consumer_federate,
-             (solar_data, load_data, node_names, self.sim_time, self.dt)),
+             (test_solar_data, test_load_data, self.node_names, self.sim_time, self.dt)),
             (opendss_federate.run_opendss_federate, ()),
             (attack_federate.run_attack_federate,
              (hacks_list, breaking_points, self.sim_time, self.dt)),
             (inverter_federate.run_inverter_federate,
-             (node_names, self.sim_time, self.dt, breaking_points, sbar_df)),
+             (self.node_names, self.sim_time, self.dt, breaking_points, sbar_df)),
             (logger_federate.run_logging_federate,
              (self.sim_time, self.dt)),
         ]
         for fn, args in funcs:
-            t = threading.Thread(
-                target=self._thread_wrapper(fn, args),
-                name=fn.__name__,
-                daemon=True
-            )
-            #logging.debug(f"Starting thread {fn.__name__}")
+            t = threading.Thread(target=self._thread_wrapper(fn, args), daemon=True)
             t.start()
             self.threads.append(t)
             time.sleep(0.5)
 
-        # -- Create controller federate --
-        #logging.debug("Creating controller federate")
+        # create controller federate
         fi = h.helicsCreateFederateInfo()
         h.helicsFederateInfoSetCoreName(fi, 'Adaptive_Controller_Federate')
         h.helicsFederateInfoSetCoreTypeFromString(fi, 'zmq')
         h.helicsFederateInfoSetTimeProperty(fi, h.HELICS_PROPERTY_TIME_DELTA, self.dt)
         self.fed = h.helicsCreateValueFederate('Adaptive_Controller_Federate', fi)
-        self.sub_voltage = h.helicsFederateRegisterSubscription(
-            self.fed, 'OpenDSS_Federate/voltage_out', '')
-        self.sub_healthy = h.helicsFederateRegisterSubscription(
-            self.fed, 'Attack_Federate/healthy_breakpoints', '')
-        self.sub_flag = h.helicsFederateRegisterSubscription(
-            self.fed, 'Attack_Federate/attack_flag', '')
-        self.pub = h.helicsFederateRegisterPublication(
-            self.fed, 'adaptive_breakpoints', h.HELICS_DATA_TYPE_STRING, '')
+        self.sub_voltage = h.helicsFederateRegisterSubscription(self.fed, 'OpenDSS_Federate/voltage_out', '')
+        self.sub_healthy = h.helicsFederateRegisterSubscription(self.fed, 'Attack_Federate/healthy_breakpoints', '')
+        self.sub_flag = h.helicsFederateRegisterSubscription(self.fed, 'Attack_Federate/attack_flag', '')
+        self.pub = h.helicsFederateRegisterPublication(self.fed, 'adaptive_breakpoints', h.HELICS_DATA_TYPE_STRING, '')
         h.helicsFederateEnterExecutingMode(self.fed)
         self.current_time = h.helicsFederateRequestTime(self.fed, 0.0)
-        #logging.debug("Controller federate entered execution mode")
 
-        # initial observation
-        obs = self._read_obs()
-        #logging.debug("=== RESET complete ===")
-        return obs
+        # clear per-node state
+        for n in self.node_names:
+            self.v_hist[n].clear()
+            self.psi_prev[n] = 0.0
+            self.epsilon_history[n].clear()
+
+        return self._read_obs()
 
     def step(self, action):
-        # Publish action as breakpoints
-        dp, dq = float(action[0]), float(action[1])
-        adaptive = {n.lower(): [{'pct': 1.0, 'bp': [-dq, -dq, -dq, +dp, +dp]}] for n in node_names}
-        #logging.debug(f"Publishing action: dp={dp}, dq={dq}")
+        # 1) fetch the latest healthy breakpoints from the Attack Federate
+        if h.helicsInputIsUpdated(self.sub_healthy):
+            healthy_vs = h.helicsInputGetString(self.sub_healthy)
+            # expect a dict-like string: { 'node1': [ {pct:…, bp:[…]}, … ], … }
+            healthy_msg = eval(healthy_vs) if healthy_vs.strip().startswith('{') else {}
+        else:
+            healthy_msg = {}
+
+        # 2) build adaptive breakpoints per node based on healthy segments + DRL offsets
+        adaptive = {}
+        for n, (dp, dq) in zip(self.node_names, action):
+            # pull whatever segments Attack Federate just published, or default
+            if n in healthy_msg:
+                segments = healthy_msg[n]
+            else:
+                # fallback to your original breaking_points CSV
+                if n in breaking_points.columns:
+                    default_bp = breaking_points[n].dropna().tolist()
+                else:
+                    default_bp = [0.98, 1.01, 1.02, 1.05, 1.07]
+                segments = [{'pct': 1.0, 'bp': default_bp}]
+
+            # apply only your DRL agent’s (dp,dq) to the healthy segment
+            bp = segments[0]['bp']
+            if self.controller_on:
+                new_bp = [
+                    bp[0] - dq,
+                    bp[1] - dq,
+                    bp[2] - dq,
+                    bp[3] + dp,
+                    bp[4] + dp
+                ]
+            # if controller_on is False, don't adjust breakpoints
+            elif not self.controller_on:
+                new_bp = [
+                    bp[0],
+                    bp[1],
+                    bp[2],
+                    bp[3],
+                    bp[4]
+                ]
+
+            segments[0]['bp'] = new_bp
+
+            adaptive[n] = segments
+
+        # 3) publish the adjusted breakpoints back to the Inverter Federate
         h.helicsPublicationPublishString(self.pub, str(adaptive))
 
-        # time advance
+        # 4) advance time in HELICS
         t_next = self.current_time + self.dt
         self.current_time = h.helicsFederateRequestTime(self.fed, t_next)
 
-        obs = self._read_obs()
-        reward = -float(obs[4])
-        done = self.current_time >= self.sim_time
+        # 5) observe & reward
+        obs = self._read_obs()  # shape (n_nodes,5)
+        reward = -float(np.sum(obs[:, 4]))        # minimize “energy” metric
+        done   = self.current_time >= self.sim_time
         logging.debug(f"Step done: time={self.current_time}, reward={reward}, done={done}")
         return obs, reward, done, {}
 
+
     def _read_obs(self):
+        # wait for voltage update
         timeout = 0
         while not h.helicsInputIsUpdated(self.sub_voltage) and timeout < 100:
             time.sleep(0.01)
@@ -204,23 +248,29 @@ class DRLControllerEnv(gym.Env):
         except Exception:
             vd = {}
 
-        key = node_names[0].lower()
-        vk = vd.get(key, 1.0)
-        self.v_hist.append(vk)
-        if len(self.v_hist) < 2:
-            return np.array([vk, vk, 0.0, 0.0, 0.0], dtype=np.float32)
+        obs_list = []
+        for n in self.node_names:
+            vk = vd.get(n, 1.0)
+            hist = self.v_hist[n]
+            hist.append(vk)
 
-        vkm1 = self.v_hist[-2]
-        psikm1 = self.psi_prev
-        dt, m, gain = self.dt, self.m, self.gain
-        psi_k = (vk - vkm1 - (m * dt / 2 - 1) * psikm1) / (1 + m * dt / 2)
-        self.psi_prev = psi_k
-        eps_k = gain * psi_k**2 
-        # if self.current_time > self.startup_time else 0.0
-        self.epsilon_history.append(eps_k)
-        yk = np.mean(self.epsilon_history) if self.epsilon_history else 0.0
+            if len(hist) < 2:
+                obs_list.append([vk, vk, 0.0, 0.0, 0.0])
+                continue
 
-        return np.array([vk, vkm1, psikm1, eps_k, yk], dtype=np.float32)
+            vkm1 = hist[-2]
+            psi_old = self.psi_prev[n]
+
+            # high-pass filter and energy
+            psik = ((vk - vkm1) - (self.m * self.dt / 2 - 1) * psi_old) / (1 + self.m * self.dt / 2)
+            self.psi_prev[n] = psik
+            epsk = self.gain * psik**2 if self.current_time > self.startup_time else 0.0
+            self.epsilon_history[n].append(epsk)
+            yk = float(np.mean(self.epsilon_history[n]))
+
+            obs_list.append([vk, vkm1, psi_old, epsk, yk])
+
+        return np.array(obs_list, dtype=np.float32)
 
     def close(self):
         logging.debug("CLOSE called")

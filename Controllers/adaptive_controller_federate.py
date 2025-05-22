@@ -39,7 +39,7 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
     gain = 1e8
     sliding_window = 10
 
-    save_nodes = ['s701a', 's701b', 's701c', 's727c']
+    save_nodes = ['s701a']
 
     # Initialize controller state per node
     controller_state = {
@@ -172,6 +172,10 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
                     state['time_counter'] += 1
 
             adaptive_breakpoints[key] = new_segments
+
+        # print publication for s701a
+        if "s701a" in adaptive_breakpoints:
+            print(f"[Adaptive Controller] Node s701a: {adaptive_breakpoints['s701a']}")
 
         # Publish and advance time
         h.helicsPublicationPublishString(pub, str(adaptive_breakpoints))
