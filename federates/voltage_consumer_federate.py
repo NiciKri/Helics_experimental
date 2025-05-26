@@ -35,6 +35,8 @@ def run_voltage_consumer_federate(solar_data, load_data, node_names, simulation_
         # Publish load and solar data
         solar_values = get_values_at_time(current_time, solar_data)
         load_values = get_values_at_time(current_time, load_data)
+
+        # print solar value for s701a
         h.helicsPublicationPublishString(pub_load, str(load_values))
         h.helicsPublicationPublishString(pub_solar, str(solar_values))
 
