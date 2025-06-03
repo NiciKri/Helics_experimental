@@ -189,7 +189,7 @@ def run_DRL_controller_federate(healthy_breakpoints_df, node_names, simulation_t
     # Cleanup
     env.close()
     h.helicsFederateDisconnect(fed)
-    h.helicsFederateFinalize(fed)
+    h.helicsFederateFree(fed)
     print("[Adaptive Controller Federate] Finalized.")
 
     # Save histories

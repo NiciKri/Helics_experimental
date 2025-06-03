@@ -125,11 +125,11 @@ logger_thread.start()
 
 
 # Wait for completion
-#consumer_thread.join()
-#opendss_thread.join()
-#attack_thread.join()
-#adaptive_controller_thread.join()
-#inverter_thread.join()
+consumer_thread.join()
+opendss_thread.join()
+attack_thread.join()
+adaptive_controller_thread.join()
+inverter_thread.join()
 #logger_thread.join()
 
 print("All federates started.")

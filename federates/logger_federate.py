@@ -65,5 +65,5 @@ def run_logging_federate(simulation_time=config.SIMULATION_TIME, time_step=confi
         print(f"[Logging Federate] Saved log to {out_path}")
 
     h.helicsFederateDisconnect(fed)
-    h.helicsFederateFinalize(fed)
+    h.helicsFederateFree(fed)
     print("[Logging Federate] Finalized.")

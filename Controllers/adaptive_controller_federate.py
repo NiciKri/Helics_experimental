@@ -173,10 +173,6 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
 
             adaptive_breakpoints[key] = new_segments
 
-        # print publication for s701a
-        if "s701a" in adaptive_breakpoints:
-            print(f"[Adaptive Controller] Node s701a: {adaptive_breakpoints['s701a']}")
-
         # Publish and advance time
         h.helicsPublicationPublishString(pub, str(adaptive_breakpoints))
         next_time = current_time + time_step
@@ -184,7 +180,7 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
 
     # Disconnect and finalize
     h.helicsFederateDisconnect(fed)
-    h.helicsFederateFinalize(fed)
+    h.helicsFederateFree(fed)
     print("[Adaptive Controller Federate] Finalized.")
 
     # Save histories

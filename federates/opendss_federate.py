@@ -135,5 +135,5 @@ def run_opendss_federate():
         current_time = granted_time
     
     h.helicsFederateDisconnect(fed)
-    h.helicsFederateFinalize(fed)
+    h.helicsFederateFree(fed)
     print("[OpenDSS Federate] Finalized.")

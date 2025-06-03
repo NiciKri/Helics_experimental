@@ -172,5 +172,5 @@ def run_attack_federate(hacks, breakpoints_df, simulation_time, time_step):
 
     # teardown
     h.helicsFederateDisconnect(fed)
-    h.helicsFederateFinalize(fed)
+    h.helicsFederateFree(fed)
     print("[Attack Federate] Finalized.")
