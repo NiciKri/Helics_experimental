@@ -70,12 +70,12 @@ def calculate_injection_for_node(state,
            • Set raw P (pk) = measured_solar.
            • Compute available reactive (q_avail = sqrt(max(Sbar² - pk², 0))).
            • Use piecewise Volt-Var control:
-             – v ≤ v1: qk = +q_avail
-             – v1 < v ≤ v2: ramp down from +q_avail → 0
-             – v2 < v ≤ v3: qk = 0
-             – v3 < v ≤ v4: ramp down from 0 → –q_avail
-             – v4 < v ≤ v5: curtail P, sink reactive up to –√(Sbar² – p²)
-         Else if filtered voltage > v5: sink full reactive (qk = –Sbar).
+             - v ≤ v1: qk = +q_avail
+             - v1 < v ≤ v2: ramp down from +q_avail → 0
+             - v2 < v ≤ v3: qk = 0
+             - v3 < v ≤ v4: ramp down from 0 → -q_avail
+             - v4 < v ≤ v5: curtail P, sink reactive up to -√(Sbar² - p²)
+         Else if filtered voltage > v5: sink full reactive (qk = -Sbar).
       3) Low-pass filter the raw P/Q setpoints to produce p_out / q_out.
       4) Update state deques accordingly and return (p_out, q_out).
     """
@@ -117,7 +117,7 @@ def calculate_injection_for_node(state,
             qk = 0.0
 
         elif low_pass_filter_v <= control_setting[3]:
-            # v3 < v ≤ v4: linear ramp from 0 → –q_avail (sink reactive)
+            # v3 < v ≤ v4: linear ramp from 0 → -q_avail (sink reactive)
             c = q_avail / (control_setting[3] - control_setting[2])
             qk = -c * (low_pass_filter_v - control_setting[2])
 

@@ -24,12 +24,12 @@ save_flag     = False
 
 # --- New: set start time for plotting (in seconds) ---
 #   e.g. 50 will skip everything before time=50s. Use None to plot from time=0.
-start_time    = 0
+start_time    = 50
 
 # --- New: voltage axis limits ---
 # Set to numeric values for fixed limits, or None for automatic scaling.
-#vmin, vmax = 0.9800, 1.0050
-vmin, vmax = None, None
+vmin, vmax = 0.9800, 1.0050
+#vmin, vmax = None, None
 
 # --- New: width scaling factor ---
 # 1.0 = base width, >1 for wider, <1 for narrower

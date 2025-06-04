@@ -12,7 +12,7 @@ DATA_DIR = BASE_DIR + r"/data"
 SAVE_LOGS = False  # Set to True to save logs, False to skip saving
 
 # Simulation parameters
-SIMULATION_TIME = 180  # Total simulation time in seconds, hardcoded max time 500 inC:\Users\nicol\Helics_experimental\Environment\DRLController.py
+SIMULATION_TIME = 300  # Total simulation time in seconds, hardcoded max time 500 inC:\Users\nicol\Helics_experimental\Environment\DRLController.py
 TIME_STEP = 1.0        # Time step in seconds
 
 # Scaling factors for the simulation
@@ -27,6 +27,6 @@ bp_override = [0.994, 0.995, 0.995, 0.996, 0.997] # Example breakpoint override
 
 hacks_list = [
     #[100, 200, 0.4, bp_override, hack_nodes],
-    #[100, 250, 0.5, bp_override, hack_nodes2],
-    [80, 150, 0.5, bp_override, hack_nodes2],
+    [100, 250, 0.5, bp_override, hack_nodes2],
+    #[80, 150, 0.5, bp_override, hack_nodes2],
 ]
