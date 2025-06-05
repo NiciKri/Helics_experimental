@@ -14,11 +14,12 @@ SAVE_LOGS = False  # Set to True to save logs, False to skip saving
 # Simulation parameters
 SIMULATION_TIME = 300  # Total simulation time in seconds, hardcoded max time 500 inC:\Users\nicol\Helics_experimental\Environment\DRLController.py
 TIME_STEP = 1.0        # Time step in seconds
+ACTION_INTERVAL = 100  # How often to apply the action (in seconds)
 
 # Scaling factors for the simulation
 Sbar_scaling = 1.1
 
-bp_701a = [0.974351955, 1.004351955, 1.004351955, 1.034351955, 1.064351955]
+#bp_701a = [0.974351955, 1.004351955, 1.004351955, 1.034351955, 1.064351955]
 
 hack_nodes = ["s701a", "s701b"]
 hack_nodes2 = ["s701a", "s701b", "s701c"]

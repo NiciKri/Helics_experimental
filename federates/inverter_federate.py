@@ -174,8 +174,8 @@ def run_inverter_federate(node_names,
       6) For each node:
            a) Split its available solar and Sbar across segments (healthy vs. attacked)
            b) Compute P/Q injections per segment via calculate_injection_for_node
-           c) Sum segment injections into node‐level total
-      7) Publish the node‐level injections as a dictionary string to HELICS
+           c) Sum segment injections into node-level total
+      7) Publish the node-level injections as a dictionary string to HELICS
       8) Advance HELICS time by delta_t and repeat
 
     :param node_names: list of node identifiers (strings)
@@ -255,7 +255,7 @@ def run_inverter_federate(node_names,
         # Start with a single segment owning 100% of power
         last_override_segments[key] = [{"pct": 1.0, "bp": orig_bp}]
 
-    # ─── 4) Time‐Stepping Loop ───────────────────────────────────────────────────
+    # ─── 4) Time-Stepping Loop ───────────────────────────────────────────────────
 
     current_time = 0.0
     while current_time < simulation_time:
