@@ -56,9 +56,9 @@ node_names = [c for c in test_solar_data.columns if c != 'time']
 class DRLControllerEnv(gym.Env):
     """
     Each call to step(global_action) runs one full HELICS simulation from t=0 to t=sim_time.
-    - `global_action` is now shape=(2,).
+    - `global_action` is now shape=(1,).
     - Inside the HELICS loop, every ACTION_INTERVAL sub-steps, we recompute a new
-      per-node action by calling _node_policy(node_obs, global_action).
+      per-node action by calling _node_policy(node_obs, global_action_item).
     - We still only return a single cumulative reward at the very end (done=True).
     """
     metadata = {"render_modes": []}
@@ -74,11 +74,11 @@ class DRLControllerEnv(gym.Env):
         self.for_eval = for_eval  # If True, skip full teardown on exit
 
         # ─── Gym action/observation spaces ─────────────────────────────────────
-        # Now action_space is just DIM=2: (dp_global, dq_global)
+        # Now action_space is just DIM=1: a single scalar shift for breakpoints.
         self.action_space = spaces.Box(
-            low=-1.0e-5, high=1.0e-5, shape=(2,), dtype=np.float64
+            low=-1.0, high=1.0, shape=(1,), dtype=np.float64
         )
-        # Observation per node is 5-dim, but overall obs = (n_nodes, 5)
+        # Observation per node is 5-dim, overall obs = (n_nodes, 5)
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(self.n_nodes, 5), dtype=np.float64
         )
@@ -167,30 +167,28 @@ class DRLControllerEnv(gym.Env):
         dummy_obs = np.zeros((self.n_nodes, 5), dtype=np.float64)
         return dummy_obs, {}
 
-    def _node_policy(self, node_obs: np.ndarray, global_action: np.ndarray) -> np.ndarray:
+    def _node_policy(self, node_obs: np.ndarray, global_action_item: float) -> float:
         """
-        Given a 5-dim node_obs and the 2-dim global_action, return a new 2-dim action for that node.
-        ----- CHANGE THIS to call your real policy (e.g. concatenate node_obs & global_action, feed it
-        into a neural net, etc.). For now, we just add tiny random noise to global_action.
+        Given a 5-dim node_obs and the scalar global_action_item, return a new scalar action for that node.
+        For now, we just add tiny random noise to global_action_item.
         """
-        # Placeholder: return global_action + small noise
-        noise = np.random.normal(scale=0.1, size=(2,))
-        node_action = global_action + noise
-        # Clip to action_space bounds:
-        return np.clip(node_action, self.action_space.low, self.action_space.high)
+        noise = np.random.normal(scale=0.1)
+        node_action = global_action_item + noise
+        # Clip to the single-dim action_space
+        return float(np.clip(node_action, self.action_space.low, self.action_space.high))
 
     def step(self, global_action: np.ndarray):
         """
         RUN A FULL SIMULATION from t=0 to t=self.sim_time. Inside that loop,
         every self.action_interval sub-steps, we recompute a per-node action by calling
-        _node_policy(node_obs, global_action). We only return one reward at the end.
+        _node_policy(node_obs, global_action_item). We only return one reward at the end.
         """
-        # ─── 1) Teardown any old HELICS sim ───────────────────────────────────
+        # 1) Teardown any old HELICS sim
         if self.fed is not None or self.broker is not None or len(self.threads) > 0:
             self._teardown()
             time.sleep(2)  # allow ports to free
 
-        # ─── 2) Launch a brand-new HELICS simulation ──────────────────────────
+        # 2) Launch a brand-new HELICS simulation
         logging.debug("Creating new HELICS broker (auto port)...")
         self.broker = h.helicsCreateBroker(
             'zmq', '', f'--federates=6 --loglevel=warning --autobroker'
@@ -199,17 +197,10 @@ class DRLControllerEnv(gym.Env):
 
         # 2a) Spawn federate threads
         federates = [
-            (voltage_consumer_federate.run_voltage_consumer_federate,
-            (test_solar_data, test_load_data, self.node_names, self.sim_time, self.dt),),
+            (voltage_consumer_federate.run_voltage_consumer_federate, (test_solar_data, test_load_data, self.node_names, self.sim_time, self.dt),),
             (opendss_federate.run_opendss_federate, ()),
-            (
-                attack_federate.run_attack_federate,
-                (hacks_list, breaking_points, self.sim_time, self.dt),
-            ),
-            (
-                inverter_federate.run_inverter_federate,
-                (self.node_names, self.sim_time, self.dt, breaking_points, sbar_df),
-            ),
+            (attack_federate.run_attack_federate, (hacks_list, breaking_points, self.sim_time, self.dt),),
+            (inverter_federate.run_inverter_federate,(self.node_names, self.sim_time, self.dt, breaking_points, sbar_df),),
             (logger_federate.run_logging_federate, (self.sim_time, self.dt)),
         ]
         for fn, args in federates:
@@ -238,13 +229,15 @@ class DRLControllerEnv(gym.Env):
         h.helicsFederateEnterExecutingMode(self.fed)
         self.current_time = h.helicsFederateRequestTime(self.fed, 0.0)
 
+        # Extract the single float from the length-1 array
+        global_action_item = float(global_action[0])
+
         # ─── 3) RUN THE TIME-LOOP FROM t=0 TO t=sim_time ───────────────────────
         total_reward = 0.0
         last_obs = None
 
-
-        # Initialize per-node actions by simply broadcasting the global_action to all nodes
-        current_actions = np.tile(global_action.reshape(1, 2), (self.n_nodes, 1))
+        # Initialize per-node actions by simply broadcasting the scalar to all nodes
+        current_actions = np.full((self.n_nodes,), global_action_item, dtype=np.float64)
 
         while True:
             # 3a) Advance HELICS time by dt
@@ -258,21 +251,20 @@ class DRLControllerEnv(gym.Env):
                 actions_to_apply = np.zeros_like(current_actions)
             else:
                 # Every action_interval sub-steps, recompute per-node actions
-                if self.current_time % self.action_interval == 0:
-                    # We already read obs last iteration; but to be safe, read again:
+                if (self.current_time + 1) % self.action_interval == 0: # Idk why +1 is needed here to be at the proper 10 steps
                     temp_obs = self._read_obs()  # shape = (n_nodes, 5)
-                    # Build a new (n_nodes, 2) array
-                    new_actions = np.zeros((self.n_nodes, 2), dtype=np.float64)
+
+                    # Build a new 1-D array of length n_nodes
+                    new_actions = np.zeros((self.n_nodes,), dtype=np.float64)
                     for i in range(self.n_nodes):
                         node_obs = temp_obs[i]  # shape=(5,)
-                        # Compute node_i's action from node_obs and the *global_action*
-                        dp_i, dq_i = self._node_policy(node_obs, global_action)
-                        new_actions[i] = [dp_i, dq_i]
+                        a_i = self._node_policy(node_obs, global_action_item)
+                        new_actions[i] = a_i
 
-                        # Print actions for s701a and s701b
+                        # Print actions for s701a and s701b if desired
                         node_name = self.node_names[i]
-                        if node_name in ("s701a", "-"):
-                            print(f"Node {node_name}: dp = {dp_i:.4f}, dq = {dq_i:.4f}")
+                        if node_name in ("s701a", "s701b"):
+                            print(f"Node {node_name}: action = {a_i:.4f}")
                     current_actions = new_actions
 
                 actions_to_apply = current_actions
@@ -300,21 +292,16 @@ class DRLControllerEnv(gym.Env):
 
             # 3g) Build new adaptive breakpoints dictionary using actions_to_apply
             adaptive = {}
-            for i, (n) in enumerate(self.node_names):
-                dp, dq = actions_to_apply[i]
+            for i, n in enumerate(self.node_names):
+                shift_val = float(actions_to_apply[i])
                 segments = healthy_msg.get(
                     n,
                     [{'pct': 1.0, 'bp': [0.98, 1.01, 1.02, 1.05, 1.07]}]
                 )
                 bp = segments[0]['bp']
                 if self.controller_on:
-                    new_bp = [
-                        type(bp[0])(bp[0] - dq),
-                        type(bp[1])(bp[1] - dq),
-                        type(bp[2])(bp[2] - dq),
-                        type(bp[3])(bp[3] - dp),
-                        type(bp[4])(bp[4] - dp)
-                    ]
+                    # Shift every breakpoint by shift_val
+                    new_bp = [type(bp_j)(bp_j - shift_val) for bp_j in bp]
                 else:
                     new_bp = bp
                 segments[0]['bp'] = new_bp
