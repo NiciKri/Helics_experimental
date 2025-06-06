@@ -124,6 +124,7 @@ time.sleep(0.5)
 inverter_thread.start()
 time.sleep(0.5)
 logger_thread.start()
+print("All federates started.")
 
 
 # Wait for completion
@@ -132,9 +133,6 @@ opendss_thread.join()
 attack_thread.join()
 adaptive_controller_thread.join()
 inverter_thread.join()
-#logger_thread.join()
-
-print("All federates started.")
 logger_thread.join() # INFO: I don't know why this is needed, but it doesn't work without it
 print("Logger thread completed.")
 
