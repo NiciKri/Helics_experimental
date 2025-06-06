@@ -11,6 +11,8 @@ from federates import opendss_federate, voltage_consumer_federate, inverter_fede
 # Controllers
 from Controllers import adaptive_controller_federate, DRL_controller_federate
 
+"""Simple code to run the simulation with all federates. Configurations are set in config.py."""
+
 # =============================================================================
 # Working directory & data loading
 # =============================================================================

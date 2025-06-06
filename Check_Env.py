@@ -2,6 +2,8 @@ import config
 import numpy as np
 from Environment import DRLControllerEnv   # replace with your module path
 
+"""Just a simple script to check the environment and its action space."""
+
 def main():
     sim_time = config.SIMULATION_TIME
     dt = config.TIME_STEP

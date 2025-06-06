@@ -13,8 +13,10 @@ SAVE_LOGS = False  # Set to True to save logs, False to skip saving
 
 # Simulation parameters
 SIMULATION_TIME = 300  # Total simulation time in seconds, hardcoded max time 500 inC:\Users\nicol\Helics_experimental\Environment\DRLController.py
+# 5-10 minutes is a realistic simulation time for testing
+ACTION_INTERVAL = 10  # How often to apply the action (in seconds), 10-30 is realistic
+
 TIME_STEP = 1.0        # Time step in seconds
-ACTION_INTERVAL = 100  # How often to apply the action (in seconds)
 
 # Scaling factors for the simulation
 Sbar_scaling = 1.1
