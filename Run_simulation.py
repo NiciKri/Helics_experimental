@@ -9,7 +9,7 @@ import config  # Import the configuration
 from federates import opendss_federate, voltage_consumer_federate, inverter_federate, attack_federate, logger_federate
 
 # Controllers
-from Controllers import adaptive_controller_federate, DRL_controller_federate
+from Controllers import adaptive_controller_federate, DRL_controller_federate, ASRController
 
 """Simple code to run the simulation with all federates. Configurations are set in config.py."""
 
@@ -98,6 +98,10 @@ adaptive_controller_thread = threading.Thread(
 """adaptive_controller_thread = threading.Thread(
     target=DRL_controller_federate.run_DRL_controller_federate,
     args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
+)"""
+"""adaptive_controller_thread = threading.Thread(
+    target=ASRController.run_DRL_policy_federate,
+    args=(config.SIMULATION_TIME, config.TIME_STEP, "final_theta.npy")
 )"""
 
 # Inverter federate

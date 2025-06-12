@@ -16,7 +16,7 @@ SIMULATION_TIME = 300  # Total simulation time in seconds, hardcoded max time 50
 # 5-10 minutes is a realistic simulation time for testing
 ACTION_INTERVAL = 10  # How often to apply the action (in seconds), 10-30 is realistic
 
-TIME_STEP = 1.0        # Time step in seconds
+TIME_STEP = 1.0        # Time step in seconds, also hardcoded in some federates
 
 # Scaling factors for the simulation
 Sbar_scaling = 1.1

@@ -107,7 +107,7 @@ def run_voltage_consumer_federate(solar_data, load_data, node_names, simulation_
     # --- Finalize HELICS federate ---
     h.helicsFederateDisconnect(fed)
     h.helicsFederateFree(fed)
-    print("[Voltage Consumer Federate] Finalized.")
+    #print("[Voltage Consumer Federate] Finalized.")
 
     # --- Save collected voltage time series to CSV ---
     try:

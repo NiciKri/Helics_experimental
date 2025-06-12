@@ -76,7 +76,7 @@ class DRLControllerEnv(gym.Env):
         # ─── Gym action/observation spaces ─────────────────────────────────────
         # Now action_space is just DIM=1: a single scalar shift for breakpoints.
         self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(1,), dtype=np.float64
+            low=-0.1, high=0.1, shape=(1,), dtype=np.float64
         )
         # Observation per node is 5-dim, overall obs = (n_nodes, 5)
         self.observation_space = spaces.Box(
@@ -122,17 +122,17 @@ class DRLControllerEnv(gym.Env):
         """
         Finalize any existing HELICS federates & broker, join threads, free resources.
         """
-        logging.debug("Tearing down HELICS simulation...")
+        #logging.debug("Tearing down HELICS simulation...")
         # 1) Finalize + disconnect controller federate
         if self.fed:
-            try:
-                h.helicsFederateFinalize(self.fed)
-                logging.debug("Controller federate finalized.")
-            except Exception:
-                pass
+            #try:
+            #    h.helicsFederateFinalize(self.fed)
+            #    #logging.debug("Controller federate finalized.")
+            #except Exception:
+            #    pass
             try:
                 h.helicsFederateDisconnect(self.fed)
-                logging.debug("Controller federate disconnected.")
+                #logging.debug("Controller federate disconnected.")
             except Exception:
                 pass
             h.helicsFederateFree(self.fed)
@@ -141,7 +141,7 @@ class DRLControllerEnv(gym.Env):
         # 2) Join all federate threads (timeout=5s)
         for i, t in enumerate(self.threads):
             if t.is_alive():
-                logging.debug(f"Joining thread {i} ...")
+                #logging.debug(f"Joining thread {i} ...")
                 t.join(timeout=5.0)
         self.threads = []
 
@@ -149,11 +149,11 @@ class DRLControllerEnv(gym.Env):
         if self.broker:
             try:
                 if h.helicsBrokerIsConnected(self.broker):
-                    logging.debug("Disconnecting broker...")
+                    #logging.debug("Disconnecting broker...")
                     h.helicsBrokerDisconnect(self.broker)
                     h.helicsBrokerWaitForDisconnect(self.broker, 5000)
                 h.helicsBrokerFree(self.broker)
-                logging.debug("Broker freed.")
+                #logging.debug("Broker freed.")
             except Exception as e:
                 logging.warning(f"Broker finalization failed: {e}")
             self.broker = None
@@ -163,7 +163,7 @@ class DRLControllerEnv(gym.Env):
         Reset() no longer launches HELICS. It just returns a dummy observation.
         All history-clearing happens at the end of each step().
         """
-        logging.debug("Reset called (no HELICS teardown here).")
+        #logging.debug("Reset called (no HELICS teardown here).")
         dummy_obs = np.zeros((self.n_nodes, 5), dtype=np.float64)
         return dummy_obs, {}
 
@@ -189,11 +189,11 @@ class DRLControllerEnv(gym.Env):
             time.sleep(2)  # allow ports to free
 
         # 2) Launch a brand-new HELICS simulation
-        logging.debug("Creating new HELICS broker (auto port)...")
+        #logging.debug("Creating new HELICS broker (auto port)...")
         self.broker = h.helicsCreateBroker(
-            'zmq', '', f'--federates=6 --loglevel=warning --autobroker'
+            'zmq', '', f'--federates=6 --loglevel=error --autobroker'
         )
-        logging.debug(f"Broker created. Connected: {h.helicsBrokerIsConnected(self.broker)}")
+        #logging.debug(f"Broker created. Connected: {h.helicsBrokerIsConnected(self.broker)}")
 
         # 2a) Spawn federate threads
         federates = [
@@ -204,14 +204,14 @@ class DRLControllerEnv(gym.Env):
             (logger_federate.run_logging_federate, (self.sim_time, self.dt)),
         ]
         for fn, args in federates:
-            logging.debug(f"Starting thread for {fn.__name__} ...")
+            #logging.debug(f"Starting thread for {fn.__name__} ...")
             t = threading.Thread(target=self._thread_wrapper(fn, args), daemon=True)
             t.start()
             self.threads.append(t)
             time.sleep(0.5)
 
         # 2b) Create and configure the controller federate
-        logging.debug("Creating controller federate ...")
+        #logging.debug("Creating controller federate ...")
         fi = h.helicsCreateFederateInfo()
         core_name = f"core_{int(time.time())}"
         h.helicsFederateInfoSetCoreName(fi, core_name)
@@ -251,7 +251,7 @@ class DRLControllerEnv(gym.Env):
                 actions_to_apply = np.zeros_like(current_actions)
             else:
                 # Every action_interval sub-steps, recompute per-node actions
-                if (self.current_time + 1) % self.action_interval == 0: # Idk why +1 is needed here to be at the proper 10 steps
+                if self.current_time % self.action_interval == 0: # e.g. every 10 seconds
                     temp_obs = self._read_obs()  # shape = (n_nodes, 5)
 
                     # Build a new 1-D array of length n_nodes
@@ -263,8 +263,9 @@ class DRLControllerEnv(gym.Env):
 
                         # Print actions for s701a and s701b if desired
                         node_name = self.node_names[i]
-                        if node_name in ("s701a", "s701b"):
-                            print(f"Node {node_name}: action = {a_i:.4f}")
+                        # print actions for specific nodes with time
+                        #if node_name in ("s701a", "s701b"):
+                        #    print(f"Time {self.current_time:.2f}: Node {node_name} action = {a_i:.4f}")
                     current_actions = new_actions
 
                 actions_to_apply = current_actions

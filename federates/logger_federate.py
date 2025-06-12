@@ -92,4 +92,4 @@ def run_logging_federate(simulation_time=config.SIMULATION_TIME,
     # Disconnect and free the federate resources
     h.helicsFederateDisconnect(fed)
     h.helicsFederateFree(fed)
-    print("[Logging Federate] Finalized.")
+    #print("[Logging Federate] Finalized.")

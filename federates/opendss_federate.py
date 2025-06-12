@@ -45,9 +45,9 @@ def run_opendss_federate():
     # Load the IEEE 37-node test case by redirecting OpenDSS to the .dss file location
     dss.Command(f"Redirect {config.BASE_DIR}/data/ieee37.dss")
     # Print out all load names loaded into OpenDSS
-    print("Loads in DSS after redirect:", dss.Loads.AllNames())
+    #print("Loads in DSS after redirect:", dss.Loads.AllNames())
     # Print out all bus names in the circuit
-    print("Buses in DSS:", dss.Circuit.AllBusNames())
+    #print("Buses in DSS:", dss.Circuit.AllBusNames())
 
     # Build a dictionary of each load’s initial reactive power (kVAR). 
     # This assumes each load is defined with kW and kVAR in the .dss file.
@@ -128,12 +128,12 @@ def run_opendss_federate():
                     modified_kvar = modified_kvar - q_inj  # Subtract reactive injection
                     if print_flag:
                         # Print details of the first bus processed this time step
-                        print(
-                            f"[OpenDSS] t={granted_time} | Node {dss_bus}: "
-                            f"load={kw}, inverter p_injection={p_inj}, "
-                            f"modified load={modified_kw}, inverter q_injection={q_inj}, "
-                            f"modified kvar load={modified_kvar}"
-                        )
+                        #print(
+                        #    f"[OpenDSS] t={granted_time} | Node {dss_bus}: "
+                        #    f"load={kw}, inverter p_injection={p_inj}, "
+                        #    f"modified load={modified_kw}, inverter q_injection={q_inj}, "
+                        #    f"modified kvar load={modified_kvar}"
+                        #)
                         print_flag = False  # Disable further printing this time step
                 except Exception as e:
                     print(f"[ERROR] Error processing inverter injection for {dss_bus}: {e}")
@@ -176,4 +176,4 @@ def run_opendss_federate():
     # After simulation loop, disconnect and free the HELICS federate
     h.helicsFederateDisconnect(fed)
     h.helicsFederateFree(fed)
-    print("[OpenDSS Federate] Finalized.")
+    #print("[OpenDSS Federate] Finalized.")

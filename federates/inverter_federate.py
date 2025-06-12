@@ -2,7 +2,7 @@ import helics as h
 import time
 import math
 from collections import deque
-import numpy as np
+#import numpy as np
 import config  # Import project-specific configuration (e.g., Sbar_scaling)
 
 # ─── Global Constants ─────────────────────────────────────────────────────────
@@ -331,11 +331,11 @@ def run_inverter_federate(node_names,
 
             # Debug printing for one example node (s701a)
             if key == 's701a':
-                print(f"[Time {current_time}] Node {key} segments:")
+                #print(f"[Time {current_time}] Node {key} segments:")
                 for idx, seg in enumerate(segments):
                     pct = seg.get("pct", 0.0)
                     bp = seg.get("bp", orig_bp)
-                    print(f"  Segment {idx}: pct={pct}, breakpoints={bp}")
+                    #print(f"  Segment {idx}: pct={pct}, breakpoints={bp}")
 
             # 4.6e) Ensure node_states has one state struct per segment
             states = node_states[key]
@@ -387,4 +387,4 @@ def run_inverter_federate(node_names,
 
     h.helicsFederateDisconnect(fed)
     h.helicsFederateFree(fed)
-    print("[Inverter Federate] Finalized.")
+    #print("[Inverter Federate] Finalized.")

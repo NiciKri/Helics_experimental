@@ -2,7 +2,7 @@ import helics as h
 import time
 import numpy as np
 from collections import deque
-import gym            # OpenAI Gym
+#import gym            # OpenAI Gym
 import config
 import os
 from Environment import DRLControllerEnv
