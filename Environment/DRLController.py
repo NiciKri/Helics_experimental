@@ -55,10 +55,9 @@ node_names = [c for c in test_solar_data.columns if c != 'time']
 
 class DRLControllerEnv(gym.Env):
     """
-    Each call to step(global_action) runs one full HELICS simulation from t=0 to t=sim_time.
-    - `global_action` is now shape=(1,).
-    - Inside the HELICS loop, every ACTION_INTERVAL sub-steps, we recompute a new
-      per-node action by calling _node_policy(node_obs, global_action_item).
+    Each call to step(actions) runs one full HELICS simulation from t=0 to t=sim_time.
+    - `actions` is now shape=(n_nodes,): one scalar shift per node.
+    - We hold those per-node shifts constant throughout the sim (zero during startup).
     - We still only return a single cumulative reward at the very end (done=True).
     """
     metadata = {"render_modes": []}
@@ -71,16 +70,22 @@ class DRLControllerEnv(gym.Env):
         self.dt = time_step
         self.node_names = node_names
         self.n_nodes = len(self.node_names)
-        self.for_eval = for_eval  # If True, skip full teardown on exit
+        self.for_eval = for_eval
 
         # ─── Gym action/observation spaces ─────────────────────────────────────
-        # Now action_space is just DIM=1: a single scalar shift for breakpoints.
+        # Now one action per node
         self.action_space = spaces.Box(
-            low=-0.1, high=0.1, shape=(1,), dtype=np.float64
+            low=-0.1,
+            high=0.1,
+            shape=(self.n_nodes,),
+            dtype=np.float64
         )
         # Observation per node is 5-dim, overall obs = (n_nodes, 5)
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.n_nodes, 5), dtype=np.float64
+            low=-np.inf,
+            high=np.inf,
+            shape=(self.n_nodes, 5),
+            dtype=np.float64
         )
 
         # ─── Controller parameters ─────────────────────────────────────────────
@@ -88,19 +93,16 @@ class DRLControllerEnv(gym.Env):
         self.gain = 1e8
         self.m = 1
 
-        # ─── Every ACTION_INTERVAL sub-steps, recompute per-node actions ───────
-        self.action_interval = config.ACTION_INTERVAL  # e.g. 10
-
-        # ─── Initialize per-node histories ────────────────────────────────────
+        # ─── HELICS handles & histories ────────────────────────────────────────
+        self.action_interval = config.ACTION_INTERVAL
         self.v_hist = {n: deque(maxlen=2) for n in self.node_names}
         self.psi_prev = {n: 0.0 for n in self.node_names}
         self.epsilon_history = {n: deque(maxlen=10) for n in self.node_names}
 
-        # ─── HELICS handles (initialized to None) ─────────────────────────────
         self.controller_on = True
         self.broker = None
-        self.threads = []       # will hold all federate threads
-        self.fed = None         # the HELICS ValueFederate for controller
+        self.threads = []
+        self.fed = None
         self.sub_voltage = None
         self.sub_healthy = None
         self.sub_flag = None
@@ -108,9 +110,6 @@ class DRLControllerEnv(gym.Env):
         self.current_time = 0.0
 
     def _thread_wrapper(self, fn, args):
-        """
-        Wrap federate launches so exceptions are logged.
-        """
         def wrapped():
             try:
                 fn(*args)
@@ -119,99 +118,69 @@ class DRLControllerEnv(gym.Env):
         return wrapped
 
     def _teardown(self):
-        """
-        Finalize any existing HELICS federates & broker, join threads, free resources.
-        """
-        #logging.debug("Tearing down HELICS simulation...")
-        # 1) Finalize + disconnect controller federate
         if self.fed:
-            #try:
-            #    h.helicsFederateFinalize(self.fed)
-            #    #logging.debug("Controller federate finalized.")
-            #except Exception:
-            #    pass
             try:
                 h.helicsFederateDisconnect(self.fed)
-                #logging.debug("Controller federate disconnected.")
             except Exception:
                 pass
             h.helicsFederateFree(self.fed)
             self.fed = None
 
-        # 2) Join all federate threads (timeout=5s)
-        for i, t in enumerate(self.threads):
+        for t in self.threads:
             if t.is_alive():
-                #logging.debug(f"Joining thread {i} ...")
                 t.join(timeout=5.0)
         self.threads = []
 
-        # 3) Disconnect + free the broker
         if self.broker:
             try:
                 if h.helicsBrokerIsConnected(self.broker):
-                    #logging.debug("Disconnecting broker...")
                     h.helicsBrokerDisconnect(self.broker)
                     h.helicsBrokerWaitForDisconnect(self.broker, 5000)
                 h.helicsBrokerFree(self.broker)
-                #logging.debug("Broker freed.")
             except Exception as e:
                 logging.warning(f"Broker finalization failed: {e}")
             self.broker = None
 
     def reset(self, *, seed=None, options=None):
-        """
-        Reset() no longer launches HELICS. It just returns a dummy observation.
-        All history-clearing happens at the end of each step().
-        """
-        #logging.debug("Reset called (no HELICS teardown here).")
         dummy_obs = np.zeros((self.n_nodes, 5), dtype=np.float64)
         return dummy_obs, {}
 
-    def _node_policy(self, node_obs: np.ndarray, global_action_item: float) -> float:
+    def step(self, actions: np.ndarray):
         """
-        Given a 5-dim node_obs and the scalar global_action_item, return a new scalar action for that node.
-        For now, we just add tiny random noise to global_action_item.
-        """
-        noise = np.random.normal(scale=0.1)
-        node_action = global_action_item + noise
-        # Clip to the single-dim action_space
-        return float(np.clip(node_action, self.action_space.low, self.action_space.high))
-
-    def step(self, global_action: np.ndarray):
-        """
-        RUN A FULL SIMULATION from t=0 to t=self.sim_time. Inside that loop,
-        every self.action_interval sub-steps, we recompute a per-node action by calling
-        _node_policy(node_obs, global_action_item). We only return one reward at the end.
+        RUN A FULL SIMULATION from t=0 to t=self.sim_time.
+        `actions` should be an array of shape (n_nodes,), one shift per node.
         """
         # 1) Teardown any old HELICS sim
-        if self.fed is not None or self.broker is not None or len(self.threads) > 0:
+        if self.fed or self.broker or self.threads:
             self._teardown()
             time.sleep(2)  # allow ports to free
 
-        # 2) Launch a brand-new HELICS simulation
-        #logging.debug("Creating new HELICS broker (auto port)...")
+        # Validate incoming actions
+        assert isinstance(actions, np.ndarray)
+        assert actions.shape == (self.n_nodes,)
+        current_actions = actions.copy()
+
+        # 2) Launch broker + federates
         self.broker = h.helicsCreateBroker(
             'zmq', '', f'--federates=6 --loglevel=error --autobroker'
         )
-        #logging.debug(f"Broker created. Connected: {h.helicsBrokerIsConnected(self.broker)}")
-
-        # 2a) Spawn federate threads
         federates = [
-            (voltage_consumer_federate.run_voltage_consumer_federate, (test_solar_data, test_load_data, self.node_names, self.sim_time, self.dt),),
+            (voltage_consumer_federate.run_voltage_consumer_federate,
+             (test_solar_data, test_load_data, self.node_names, self.sim_time, self.dt)),
             (opendss_federate.run_opendss_federate, ()),
-            (attack_federate.run_attack_federate, (hacks_list, breaking_points, self.sim_time, self.dt),),
-            (inverter_federate.run_inverter_federate,(self.node_names, self.sim_time, self.dt, breaking_points, sbar_df),),
+            (attack_federate.run_attack_federate,
+             (hacks_list, breaking_points, self.sim_time, self.dt)),
+            (inverter_federate.run_inverter_federate,
+             (self.node_names, self.sim_time, self.dt, breaking_points, sbar_df)),
             (logger_federate.run_logging_federate, (self.sim_time, self.dt)),
         ]
         for fn, args in federates:
-            #logging.debug(f"Starting thread for {fn.__name__} ...")
             t = threading.Thread(target=self._thread_wrapper(fn, args), daemon=True)
             t.start()
             self.threads.append(t)
             time.sleep(0.5)
 
-        # 2b) Create and configure the controller federate
-        #logging.debug("Creating controller federate ...")
+        # 3) Controller federate
         fi = h.helicsCreateFederateInfo()
         core_name = f"core_{int(time.time())}"
         h.helicsFederateInfoSetCoreName(fi, core_name)
@@ -219,70 +188,47 @@ class DRLControllerEnv(gym.Env):
         h.helicsFederateInfoSetTimeProperty(fi, h.HELICS_PROPERTY_TIME_DELTA, self.dt)
         self.fed = h.helicsCreateValueFederate('Adaptive_Controller_Federate', fi)
 
-        # Register subscriptions and publications
-        self.sub_voltage = h.helicsFederateRegisterSubscription(self.fed, 'OpenDSS_Federate/voltage_out', '')
-        self.sub_healthy = h.helicsFederateRegisterSubscription(self.fed, 'Attack_Federate/healthy_breakpoints', '')
-        self.sub_flag = h.helicsFederateRegisterSubscription(self.fed, 'Attack_Federate/attack_flag', '')
-        self.pub = h.helicsFederateRegisterPublication(self.fed, 'adaptive_breakpoints', h.HELICS_DATA_TYPE_STRING, '')
+        self.sub_voltage = h.helicsFederateRegisterSubscription(
+            self.fed, 'OpenDSS_Federate/voltage_out', ''
+        )
+        self.sub_healthy = h.helicsFederateRegisterSubscription(
+            self.fed, 'Attack_Federate/healthy_breakpoints', ''
+        )
+        self.sub_flag = h.helicsFederateRegisterSubscription(
+            self.fed, 'Attack_Federate/attack_flag', ''
+        )
+        self.pub = h.helicsFederateRegisterPublication(
+            self.fed, 'adaptive_breakpoints', h.HELICS_DATA_TYPE_STRING, ''
+        )
 
-        # Enter executing mode
         h.helicsFederateEnterExecutingMode(self.fed)
         self.current_time = h.helicsFederateRequestTime(self.fed, 0.0)
 
-        # Extract the single float from the length-1 array
-        global_action_item = float(global_action[0])
-
-        # ─── 3) RUN THE TIME-LOOP FROM t=0 TO t=sim_time ───────────────────────
+        # 4) Time loop
         total_reward = 0.0
         last_obs = None
 
-        # Initialize per-node actions by simply broadcasting the scalar to all nodes
-        current_actions = np.full((self.n_nodes,), global_action_item, dtype=np.float64)
-
         while True:
-            # 3a) Advance HELICS time by dt
             t_next = self.current_time + self.dt
             self.current_time = h.helicsFederateRequestTime(self.fed, t_next)
 
-            # 3b) Check startup_time
+            # Controller off during startup
             self.controller_on = (self.current_time >= self.startup_time)
             if not self.controller_on:
-                # During startup, enforce zero action on all nodes
                 actions_to_apply = np.zeros_like(current_actions)
             else:
-                # Every action_interval sub-steps, recompute per-node actions
-                if self.current_time % self.action_interval == 0: # e.g. every 10 seconds
-                    temp_obs = self._read_obs()  # shape = (n_nodes, 5)
-
-                    # Build a new 1-D array of length n_nodes
-                    new_actions = np.zeros((self.n_nodes,), dtype=np.float64)
-                    for i in range(self.n_nodes):
-                        node_obs = temp_obs[i]  # shape=(5,)
-                        a_i = self._node_policy(node_obs, global_action_item)
-                        new_actions[i] = a_i
-
-                        # Print actions for s701a and s701b if desired
-                        node_name = self.node_names[i]
-                        # print actions for specific nodes with time
-                        #if node_name in ("s701a", "s701b"):
-                        #    print(f"Time {self.current_time:.2f}: Node {node_name} action = {a_i:.4f}")
-                    current_actions = new_actions
-
                 actions_to_apply = current_actions
 
-            # 3c) Read voltages & build obs array
+            # Read observations & accumulate reward
             obs = self._read_obs()
             last_obs = obs.copy()
-
-            # 3d) Instantaneous reward = – sum of y_k across nodes (obs[:,4])
             inst_reward = -float(np.sum(obs[:, 4]))
             total_reward += inst_reward
 
-            # 3e) Termination check
             if self.current_time >= self.sim_time:
                 break
 
-            # 3f) Fetch “healthy breakpoints” from attack federate if updated
+            # Fetch healthy breakpoints if updated
             healthy_msg = {}
             if h.helicsInputIsUpdated(self.sub_healthy):
                 try:
@@ -291,7 +237,7 @@ class DRLControllerEnv(gym.Env):
                 except Exception:
                     logging.warning("Failed to parse healthy breakpoint input")
 
-            # 3g) Build new adaptive breakpoints dictionary using actions_to_apply
+            # Build and publish adaptive breakpoints
             adaptive = {}
             for i, n in enumerate(self.node_names):
                 shift_val = float(actions_to_apply[i])
@@ -301,38 +247,23 @@ class DRLControllerEnv(gym.Env):
                 )
                 bp = segments[0]['bp']
                 if self.controller_on:
-                    # Shift every breakpoint by shift_val
-                    new_bp = [type(bp_j)(bp_j - shift_val) for bp_j in bp]
-                else:
-                    new_bp = bp
-                segments[0]['bp'] = new_bp
+                    segments[0]['bp'] = [bp_j - shift_val for bp_j in bp]
                 adaptive[n] = segments
 
-            # 3h) Publish the adaptive breakpoints
             h.helicsPublicationPublishString(self.pub, str(adaptive))
 
-        # ─── 4) Teardown HELICS ─────────────────────────────────────────────────
+        # 5) Teardown HELICS & clear histories
         self._teardown()
-
-        # ─── 5) CLEAR ALL PER-NODE HISTORIES (AFTER sim completes) ─────────────
         for n in self.node_names:
             self.v_hist[n].clear()
             self.psi_prev[n] = 0.0
             self.epsilon_history[n].clear()
 
-        # ─── 6) Build “info” dict ──────────────────────────────────────────────
+        # 6) Return
         info = {"total_reward": total_reward}
-
-        # ─── 7) Return final_obs, cumulative reward, terminated=True ──────────
-        terminated = True
-        truncated = False
-        return last_obs, total_reward, terminated, truncated, info
+        return last_obs, total_reward, True, False, info
 
     def _read_obs(self):
-        """
-        Exactly as before: read voltages, compute high-pass filter, eps, y_k, etc.
-        Returns an (n_nodes x 5) NumPy array of [v_k, v_{k-1}, psi_{k-1}, eps_k, y_k].
-        """
         timeout = 0
         while not h.helicsInputIsUpdated(self.sub_voltage) and timeout < 100:
             time.sleep(0.01)
@@ -370,7 +301,4 @@ class DRLControllerEnv(gym.Env):
         return np.array(obs_list, dtype=np.float64)
 
     def close(self):
-        """
-        Public close(): just teardown if needed.
-        """
         self._teardown()

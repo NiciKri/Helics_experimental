@@ -1,115 +1,151 @@
-#!/usr/bin/env python3
+# ars_train.py
 
 import numpy as np
-import gymnasium as gym
+from dataclasses import dataclass
+from Environment import DRLControllerEnv
+import config
 
+# ─── Linear policy ───────────────────────────────────────────────────────────
+class LinearPolicy:
+    def __init__(self, state_shape, action_shape):
+        """
+        a = M @ s + b
+        state_shape: (n_nodes, 5) → we flatten to D = n_nodes*5
+        action_shape: (n_nodes,) → P = n_nodes shifts
+        """
+        D = state_shape[0] * state_shape[1]
+        P = action_shape[0]
+        # store policy as (P x (D+1)) to include bias
+        self.theta = np.zeros((P, D + 1), dtype=np.float64)
+
+    def get_params(self):
+        return self.theta
+
+    def set_params(self, theta):
+        self.theta = theta
+
+    def act(self, obs_flat):
+        # obs_flat: (D,)
+        x = np.append(obs_flat, 1.0)      # bias term
+        return self.theta.dot(x)          # → (P,)
+
+
+# ─── Normalizer ─────────────────────────────────────────────────────────────
 class Normalizer:
-    """
-    Tracks running mean and variance of observations for normalization.
-    """
-    def __init__(self, size: int):
+    def __init__(self, size):
         self.n = 0
-        self.mean = np.zeros(size)
-        self.var = np.ones(size)
+        self.mean = np.zeros(size, float)
+        self.S = np.zeros(size, float)  # sum of squares of diff
 
-    def observe(self, x: np.ndarray):
+    def update(self, x):
         self.n += 1
         if self.n == 1:
-            self.mean = x.copy()
-            self.var = np.ones_like(x)
+            self.mean[:] = x
         else:
             old_mean = self.mean.copy()
             self.mean += (x - old_mean) / self.n
-            self.var += (x - old_mean) * (x - self.mean)
+            self.S += (x - old_mean) * (x - self.mean)
 
-    def normalize(self, inputs: np.ndarray) -> np.ndarray:
-        std = np.sqrt(self.var / max(self.n - 1, 1))
-        return (inputs - self.mean) / (std + 1e-8)
+    def normalize(self, x):
+        self.update(x)
+        var = (self.S / max(self.n,1)).clip(min=1e-2)
+        return (x - self.mean) / np.sqrt(var)
 
-class ARS:
-    """
-    Augmented Random Search (ARS) with observation normalization.
-    """
-    def __init__(
-        self,
-        env_name: str = 'Pendulum-v1',
-        n_directions: int = 56,
-        n_best: int = 18,
-        noise: float = 0.01236473939983117,
-        learning_rate: float = 0.02309410454296106,
-        max_steps: int = 100
-    ):
-        self.env = gym.make(env_name)
-        self.obs_dim = self.env.observation_space.shape[0]
-        self.act_low = self.env.action_space.low
-        self.act_high = self.env.action_space.high
-        self.n_directions = n_directions
-        self.n_best = n_best
-        self.nu = noise
-        self.alpha = learning_rate
-        self.max_steps = max_steps
-        self.theta = np.zeros(self.obs_dim + 1)
 
-    def get_action(self, state: np.ndarray, theta: np.ndarray) -> np.ndarray:
-        value = np.dot(theta[:-1], state) + theta[-1]
-        return np.clip(value, self.act_low, self.act_high)
+# ─── ARS hyperparameters ─────────────────────────────────────────────────────
+@dataclass
+class ARSParams:
+    rand_directions: int = 16    # N
+    best_directions: int = 8     # b <= N
+    learning_rate: float = 0.02  # α
+    noise_std: float = 0.03      # ν
+    num_iterations: int = 200    # number of policy updates
+    rollout_length: int = 1      # each rollout runs one full sim (env.step returns full trajectory reward)
 
-    def rollout(self, theta: np.ndarray) -> float:
-        norm = Normalizer(self.obs_dim)
-        state, _ = self.env.reset()
+
+# ─── ARS agent ───────────────────────────────────────────────────────────────
+class ARSAgent:
+    def __init__(self, env, params: ARSParams):
+        self.env = env
+        self.p = params
+        # flatten state_dim = n_nodes*5
+        n_nodes, obs_dim = env.observation_space.shape
+        self.state_dim = n_nodes * obs_dim
+        # actions = n_nodes shifts
+        self.action_dim = env.action_space.shape[0]
+        # policy
+        self.policy = LinearPolicy((n_nodes, obs_dim), (n_nodes,))
+        self.normalizer = Normalizer(self.state_dim)
+
+    def _rollout(self, theta):
+        """Run one full simulation with a fixed policy theta, return cumulative reward."""
+        self.policy.set_params(theta)
+        obs, _ = self.env.reset()
         total_reward = 0.0
-        for _ in range(self.max_steps):
-            norm.observe(state)
-            s_norm = norm.normalize(state)
-            action = self.get_action(s_norm, theta)
-            state, reward, terminated, truncated, _ = self.env.step(action)
+        done = False
+        while not done:
+            obs_flat = obs.flatten()
+            obs_norm = self.normalizer.normalize(obs_flat)
+            action = self.policy.act(obs_norm)
+            obs, reward, done, truncated, info = self.env.step(action)
             total_reward += reward
-            if terminated or truncated:
-                break
         return total_reward
 
-    def train(self, iterations: int = 100):
-        for _ in range(iterations):
-            # Perform one ARS update (using train_step logic if refactored)  
-            deltas      = [np.random.randn(self.obs_dim + 1) for _ in range(self.n_directions)]
+    def train(self):
+        theta = self.policy.get_params().copy()
+        for it in range(self.p.num_iterations):
+            # 1) sample directions
+            deltas = [np.random.randn(*theta.shape) for _ in range(self.p.rand_directions)]
+
+            # 2) evaluate positive/negative rollouts
             rewards_pos = []
             rewards_neg = []
             for d in deltas:
-                rewards_pos.append(self.rollout(self.theta + self.nu * d))
-                rewards_neg.append(self.rollout(self.theta - self.nu * d))
-            scores = np.array([max(rp, rn) for rp, rn in zip(rewards_pos, rewards_neg)])
-            idxs   = np.argsort(scores)[-self.n_best:]
-            step = np.zeros_like(self.theta)
-            paired = []
-            for i in idxs:
-                step   += (rewards_pos[i] - rewards_neg[i]) * deltas[i]
-                paired += [rewards_pos[i], rewards_neg[i]]
-            sigma_r = np.std(np.array(paired))
-            if sigma_r > 1e-8:
-                self.theta += (self.alpha / (self.n_best * sigma_r)) * step
+                rewards_pos.append(self._rollout(theta + self.p.noise_std * d))
+                rewards_neg.append(self._rollout(theta - self.p.noise_std * d))
+
+            # 3) select best directions
+            scores = np.maximum(rewards_pos, rewards_neg)
+            idxs = np.argsort(scores)[-self.p.best_directions:]
+
+            # 4) compute step
+            step = np.zeros_like(theta)
+            sigma_r = np.std(np.array(rewards_pos + rewards_neg))
+            for idx in idxs:
+                step += (rewards_pos[idx] - rewards_neg[idx]) * deltas[idx]
+            step *= (self.p.learning_rate / (self.p.best_directions * (sigma_r + 1e-8)))
+
+            # 5) update policy
+            theta += step
+            # log progress
+            rollout_reward = self._rollout(theta)
+            print(f"Iter {it+1:03d} | Rollout reward {rollout_reward:.2f}")
+
+        # final policy
+        self.policy.set_params(theta)
+        return theta
 
 
-def main():
-    # Instantiate and optionally train the agent
-    agent = ARS(env_name='Pendulum-v1')
-    print("Training agent for 100 iterations...")
-    agent.train(iterations=100)
+# ─── MAIN ────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    # instantiate your HELICS‐based env
+    sim_time = config.SIMULATION_TIME
+    dt = config.TIME_STEP
+    env = DRLControllerEnv(sim_time, dt)
 
-    # --- Visualization in human mode ---
-    print("Launching environment window (human mode)...")
-    env = gym.make('Pendulum-v1', render_mode='human')
-    obs, _ = env.reset()
-    total_reward = 0.0
-    for _ in range(agent.max_steps):
-        # normalize and act
-        # re-use Normalizer if desired; here we use raw observation
-        action = agent.get_action(obs, agent.theta)
-        obs, reward, terminated, truncated, _ = env.step(action)
-        total_reward += reward
-        if terminated or truncated:
-            break
-    print(f"Total reward: {total_reward:.2f}")
-    env.close()
+    # configure ARS
+    params = ARSParams(
+        rand_directions=2,
+        best_directions=1,
+        learning_rate=0.001,
+        noise_std=0.01,
+        num_iterations=30
+    )
+    agent = ARSAgent(env, params)
 
-if __name__ == '__main__':
-    main()
+    # train!
+    best_theta = agent.train()
+
+    # save best_theta if you like:
+    np.save("best_ars_theta.npy", best_theta)
+    print("Finished training. Policy saved to best_ars_theta.npy")
