@@ -3,8 +3,10 @@
 """for no attacks, use hacks_list = []
 for no adaptive controller, set threshold in federate to 1e6"""
 
+import os
+
 # Base directory for your simulation
-BASE_DIR = r"C:/Users/nicol/Helics_experimental"
+BASE_DIR = os.getcwd()
 
 # Data directory (you can adjust this if needed)
 DATA_DIR = BASE_DIR + r"/data"
