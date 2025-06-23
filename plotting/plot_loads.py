@@ -16,9 +16,9 @@ plt.rcParams.update({
     'axes.labelpad':    12
 })
 
-# --- User‐configurable settings ---
-file1 = r"C:\Users\nicol\Helics_experimental\data\load_data.csv"
-file2 = r"C:\Users\nicol\Helics_experimental\data\solar_data.csv"
+# --- File Paths ---
+file1 = os.path.join(os.getcwd(), '..', 'data', 'load_data.csv')
+file2 = os.path.join(os.getcwd(), '..', 'data', 'solar_data.csv')
 
 # --- Figure sizing ---
 width_scale  = 1.5
@@ -48,7 +48,7 @@ plt.figure(figsize=(fig_width, fig_height))
 plt.plot(x, y1, label="Load")
 plt.plot(x, y2, label="PV Production")
 
-plt.title("Load and PV Values Over Time")
+plt.title("Load and PV Values Over Time (Node 701a)")
 plt.xlabel("Time [h]")
 plt.ylabel("Load and PV Values (kW)")
 
@@ -60,7 +60,9 @@ plt.legend(loc='upper right')
 plt.tight_layout()
 
 #save the figure
-save_dir = r"C:\Users\nicol\MT_docs_graphs\profile"
+# save_dir = r"C:\Users\nicol\MT_docs_graphs\profile"
+save_dir = os.getcwd() + r"\figures\profile"
+os.makedirs(save_dir, exist_ok=True)
 save_name = "load_profile.png"
 save_path = os.path.join(save_dir, save_name)
 plt.savefig(save_path, dpi=300, bbox_inches='tight')

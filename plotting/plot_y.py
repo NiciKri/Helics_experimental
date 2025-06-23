@@ -2,7 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 
-output_dir = "C:/Users/nicol/Helics_experimental/outputs"  # adjust if needed
+# output_dir = "C:/Users/nicol/Helics_experimental/outputs"  # adjust if needed
+output_dir= os.path.join(os.getcwd(), '..', 'outputs')
 node = "s701a"  # change to your node of interest
 
 

@@ -95,10 +95,10 @@ adaptive_controller_thread = threading.Thread(
     target=adaptive_controller_federate.run_adaptive_controller_federate,
     args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
 )
-"""adaptive_controller_thread = threading.Thread(
-    target=DRL_controller_federate.run_DRL_controller_federate,
-    args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
-)"""
+# adaptive_controller_thread = threading.Thread(
+#     target=DRL_controller_federate.run_DRL_controller_federate,
+#     args=(breaking_points, node_names, config.SIMULATION_TIME, config.TIME_STEP)
+# )     
 
 # Inverter federate
 inverter_thread = threading.Thread(

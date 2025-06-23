@@ -16,7 +16,9 @@ plt.rcParams.update({
 })
 
 # --- User‐configurable settings ---
-save_dir      = r"C:\Users\nicol\MT_docs_graphs\Midterm"
+# save_dir      = r"C:\Users\nicol\MT_docs_graphs\Midterm"
+save_dir = os.getcwd() + r"\figures"
+os.makedirs(save_dir, exist_ok=True)
 save_name     = "adaptive.png"
 save_path     = os.path.join(save_dir, save_name)
 plot_flag     = True
@@ -42,18 +44,19 @@ base_figsize  = (10, 6)
 fig_width     = base_figsize[0] * width_scale
 fig_height    = base_figsize[1]
 
-# ensure save directory exists
-os.makedirs(save_dir, exist_ok=True)
+# # ensure save directory exists
+# os.makedirs(save_dir, exist_ok=True)
 
 # Load the voltage timeseries data
-df = pd.read_csv("voltage_timeseries.csv")
+df = pd.read_csv(os.path.join(os.getcwd(), '..', 'voltage_timeseries.csv'))
 
 # --- Apply start_time filter if set ---
 if start_time is not None:
     df = df[df['time'] >= start_time]
 
 # --- Choose Your Plotting Option ---
-nodes_to_plot = ["701a", "701b", "701c", "727a", "727b", "727c"]
+nodes_to_plot = ["701a", "701b", "701c"]
+# nodes_to_plot = ["701a", "701b", "701c", "727a", "727b", "727c", "738a", "725b", "735c", "742b", "714b"]
 # nodes_to_plot = None
 
 # --- Determine Which Nodes to Plot ---
