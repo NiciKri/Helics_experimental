@@ -9,9 +9,6 @@ import config
 from collections import deque
 import logging
 
-# Import data loading utility
-from utils import load_solar_data, load_load_data, load_breaking_points
-
 # ─── Federate modules ───────────────────────────────────────────────────────
 from federates import (
     opendss_federate,
@@ -28,11 +25,25 @@ logging.basicConfig(
 )
 
 # ─── Load CSVs once, outside the class ───────────────────────────────────────
-test_solar_data = load_solar_data(config.DATA_DIR, config.solar_scaling_factor, config.start_time)
+test_solar_data = pd.read_csv(f"{config.DATA_DIR}/solar_data.csv")
+test_solar_data.columns = (
+    test_solar_data.columns
+        .str.replace('_pv$', '', regex=True)
+        .str.replace('S', 's')
+)
+test_solar_data['time'] = test_solar_data.index
 
-test_load_data = load_load_data(config.DATA_DIR, config.load_scaling_factor, config.start_time)
+test_load_data = pd.read_csv(f"{config.DATA_DIR}/load_data.csv")
+test_load_data.columns = test_load_data.columns.str.replace('S', 's')
+test_load_data['time'] = test_load_data.index
+test_load_data.sort_values('time', inplace=True)
 
-breaking_points = load_breaking_points(config.DATA_DIR)
+breaking_points = pd.read_csv(f"{config.DATA_DIR}/solar_VV_breakpoints.csv")
+breaking_points.columns = (
+    breaking_points.columns
+        .str.replace('_pv$', '', regex=True)
+        .str.replace('S', 's')
+)
 
 max_solar = test_solar_data.drop(columns='time').max()
 sbar_df = pd.DataFrame([max_solar])

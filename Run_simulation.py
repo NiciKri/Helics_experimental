@@ -5,6 +5,9 @@ import helics as h
 import pandas as pd
 import config  # Import the configuration
 
+# Import data loading utility
+from utils import load_solar_data, load_load_data, load_breaking_points
+
 # Custom federates
 from federates import opendss_federate, voltage_consumer_federate, inverter_federate, attack_federate, logger_federate
 
@@ -19,12 +22,7 @@ from Controllers import adaptive_controller_federate, DRL_controller_federate, A
 os.chdir(config.BASE_DIR)
 
 # Solar data
-solar_data = pd.read_csv(f"{config.DATA_DIR}/solar_data.csv")
-solar_data.columns = solar_data.columns.str.replace('_pv$', '', regex=True)
-solar_data.columns = solar_data.columns.str.replace('S', 's')
-solar_data['time'] = solar_data.index
-
-# Max solar production per node -> sbar_df
+solar_data = load_solar_data(config.DATA_DIR, config.solar_scaling_factor, config.start_time)
 node_names = [col for col in solar_data.columns if col != 'time']
 max_solar = solar_data[node_names].max()
 max_solar_df = pd.DataFrame([max_solar])
@@ -33,15 +31,10 @@ max_solar_df.to_csv(output_csv_path, index=False)
 sbar_df = pd.read_csv(output_csv_path)
 
 # Load data
-load_data = pd.read_csv(f"{config.DATA_DIR}/load_data.csv")
-load_data.columns = load_data.columns.str.replace('S', 's')
-load_data['time'] = load_data.index
-load_data.sort_values('time', inplace=True)
+load_data = load_load_data(config.DATA_DIR, config.load_scaling_factor, config.start_time)
 
 # Breakpoints data
-breaking_points = pd.read_csv(f"{config.DATA_DIR}/solar_VV_breakpoints.csv")
-breaking_points.columns = breaking_points.columns.str.replace('_pv$', '', regex=True)
-breaking_points.columns = breaking_points.columns.str.replace('S', 's')
+breaking_points = load_breaking_points(config.DATA_DIR)
 
 # =============================================================================
 # Define attacks

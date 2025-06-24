@@ -139,7 +139,7 @@ if __name__ == "__main__":
         best_directions=1,
         learning_rate=0.001,
         noise_std=0.01,
-        num_iterations=30
+        num_iterations=15
     )
     agent = ARSAgent(env, params)
 

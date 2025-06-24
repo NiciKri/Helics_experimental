@@ -18,6 +18,11 @@ ACTION_INTERVAL = 10  # How often to apply the action (in seconds), 10-30 is rea
 
 TIME_STEP = 1.0        # Time step in seconds, also hardcoded in some federates
 
+# Scaling factors for data loading
+start_time = 0  # Start time for data loading, can be adjusted
+solar_scaling_factor = 1.0  # Scaling factor for solar data
+load_scaling_factor = 1.0  # Scaling factor for load data
+
 # Scaling factors for the simulation
 Sbar_scaling = 1.1
 
