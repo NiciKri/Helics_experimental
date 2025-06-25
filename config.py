@@ -14,7 +14,7 @@ SAVE_LOGS = False  # Set to True to save logs, False to skip saving
 # Simulation parameters
 SIMULATION_TIME = 300  # Total simulation time in seconds, hardcoded max time 500 inC:\Users\nicol\Helics_experimental\Environment\DRLController.py
 # 5-10 minutes is a realistic simulation time for testing
-ACTION_INTERVAL = 10  # How often to apply the action (in seconds), 10-30 is realistic
+ACTION_INTERVAL = 30  # How often to apply the action (in seconds), 10-30 is realistic
 
 TIME_STEP = 1.0        # Time step in seconds, also hardcoded in some federates
 
@@ -22,6 +22,8 @@ TIME_STEP = 1.0        # Time step in seconds, also hardcoded in some federates
 start_time = 0  # Start time for data loading, can be adjusted
 solar_scaling_factor = 1.0  # Scaling factor for solar data
 load_scaling_factor = 1.0  # Scaling factor for load data
+
+TARGET_NODE = "s701"
 
 # Scaling factors for the simulation
 Sbar_scaling = 1.1

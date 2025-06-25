@@ -46,7 +46,7 @@ fig_height    = base_figsize[1]
 os.makedirs(save_dir, exist_ok=True)
 
 # Load the voltage timeseries data
-df = pd.read_csv("ARS_voltage_timeseries.csv")
+df = pd.read_csv("voltage_timeseries.csv")
 
 # --- Apply start_time filter if set ---
 if start_time is not None:
