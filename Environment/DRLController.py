@@ -206,7 +206,7 @@ class DRLControllerEnv(gym.Env):
                 actions_to_apply = new_bp_shifts
                 next_update_time += self.action_interval
 
-                # print action for debugging for node s701a
+                # print action for debugging for node s701a and s701b
                 if 's701a' in self.node_names:
                     action_value = actions_to_apply[self.node_names.index('s701a')]
                     print(f"Action for s701a at time {self.current_time}: {action_value}")
