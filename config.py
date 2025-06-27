@@ -14,7 +14,7 @@ SAVE_LOGS = False  # Set to True to save logs, False to skip saving
 # Simulation parameters
 SIMULATION_TIME = 300  # Total simulation time in seconds, hardcoded max time 500 inC:\Users\nicol\Helics_experimental\Environment\DRLController.py
 # 5-10 minutes is a realistic simulation time for testing
-ACTION_INTERVAL = 30  # How often to apply the action (in seconds), 10-30 is realistic
+ACTION_INTERVAL = 10  # How often to apply the action (in seconds), 10-30 is realistic
 
 TIME_STEP = 1.0        # Time step in seconds, also hardcoded in some federates
 
@@ -30,13 +30,14 @@ Sbar_scaling = 1.1
 
 #bp_701a = [0.974351955, 1.004351955, 1.004351955, 1.034351955, 1.064351955]
 
+adaptive_controller_on = False  # Set to True to enable adaptive controller, False to disable
+
 hack_nodes = ["s701a", "s701b"]
 hack_nodes2 = ["s701a", "s701b", "s701c"]
 #hack_nodes = node_names  # Uncomment to attack all nodes
 bp_override = [0.994, 0.995, 0.995, 0.996, 0.997] # Example breakpoint override
 
 hacks_list = [
-    #[100, 200, 0.4, bp_override, hack_nodes],
-    [100, 250, 0.5, bp_override, hack_nodes2],
     #[80, 150, 0.5, bp_override, hack_nodes2],
+    [None, None, 0.5, bp_override, 3],
 ]

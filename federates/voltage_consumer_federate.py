@@ -113,6 +113,6 @@ def run_voltage_consumer_federate(solar_data, load_data, node_names, simulation_
     try:
         voltage_df = pd.DataFrame(voltage_timeseries)  # Convert list of dicts to DataFrame
         voltage_df.to_csv("voltage_timeseries.csv", index=False)  # Write DataFrame to CSV
-        print("[Voltage Data] Saved to 'voltage_timeseries.csv'")
+        #print("[Voltage Data] Saved to 'voltage_timeseries.csv'")
     except Exception as e:
         print(f"[ERROR] Could not save voltage data: {e}")

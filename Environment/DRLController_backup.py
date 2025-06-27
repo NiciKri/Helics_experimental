@@ -63,8 +63,9 @@ class DRLControllerEnv(gym.Env):
         self.action_space = spaces.Box(
             low=-0.1, high=0.1, shape=(self.n_nodes,), dtype=np.float64
         )
+        # Now only 3 features per node: [psi_k, eps_k, y_k]
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.n_nodes, 5), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=(self.n_nodes, 3), dtype=np.float64
         )
 
         # ─── Controller parameters ─────────────────────────────────────────────
@@ -120,7 +121,8 @@ class DRLControllerEnv(gym.Env):
             self.broker = None
 
     def reset(self, *, seed=None, options=None):
-        dummy_obs = np.zeros((self.n_nodes, 5), dtype=np.float64)
+        # Return zeros matching new observation shape
+        dummy_obs = np.zeros((self.n_nodes, 3), dtype=np.float64)
         return dummy_obs, {}
 
     def step(self, actions: np.ndarray):
@@ -129,9 +131,9 @@ class DRLControllerEnv(gym.Env):
             self._teardown()
             time.sleep(2)
 
-        # Validate actions
-        assert isinstance(actions, np.ndarray)
-        assert actions.shape == (self.n_nodes,)
+        # Validate actions with error messages
+        assert isinstance(actions, np.ndarray), "Actions must be a numpy array"
+        assert actions.shape == (self.n_nodes,), f"Actions shape must be {(self.n_nodes,)}"
         current_actions = actions.copy()
 
         # ——— 2) Launch broker & federates ————————————————————————————
@@ -198,7 +200,7 @@ class DRLControllerEnv(gym.Env):
             # Read observations & accumulate reward
             obs = self._read_obs()
             last_obs = obs.copy()
-            inst_reward = -float(np.sum(obs[:, 4]))
+            inst_reward = -float(np.sum(obs[:, 2]))  # now eps is obs[:,1], y is obs[:,2]
             total_reward += inst_reward
 
             if self.current_time == next_update_time:
@@ -206,7 +208,12 @@ class DRLControllerEnv(gym.Env):
                 actions_to_apply = new_bp_shifts
                 next_update_time += self.action_interval
 
-            # Fetch & adjust healthy breakpoints
+                # print action for debugging for node s701a and s701b
+                #if 's701a' in self.node_names:
+                #    action_value = actions_to_apply[self.node_names.index('s701a')]
+                #    print(f"Action for s701a at time {self.current_time}: {action_value}")
+
+            # Publish adaptive breakpoints
             healthy_msg = {}
             if h.helicsInputIsUpdated(self.sub_healthy):
                 try:
@@ -242,10 +249,10 @@ class DRLControllerEnv(gym.Env):
     def _read_obs(self):
         """
         Read voltage observations for each node, calculate psi & epsilon,
-        and return array of shape (n_nodes, 5): [vk, vkm1, psi_old, epsk, yk]
+        and return array of shape (n_nodes, 3): [psi_k, eps_k, y_k]
         """
-        timeout = 0
         vs = h.helicsInputGetString(self.sub_voltage)
+        timeout = 0
         while vs == "":
             time.sleep(0.01)
             timeout += 1
@@ -266,7 +273,7 @@ class DRLControllerEnv(gym.Env):
             hst = self.v_hist[n]
             hst.append(vk)
             if len(hst) < 2:
-                obs_list.append([vk, vk, 0.0, 0.0, 0.0])
+                obs_list.append([0.0, 0.0, 0.0])
                 continue
 
             vkm1 = hst[-2]
@@ -279,7 +286,9 @@ class DRLControllerEnv(gym.Env):
             self.epsilon_history[n].append(epsk)
 
             yk = float(np.mean(self.epsilon_history[n]))
-            obs_list.append([vk, vkm1, psi_old, epsk, yk])
+            # original 5-dim return preserved as comment:
+            # obs_list.append([vk, vkm1, psi_old, epsk, yk])
+            obs_list.append([psik, epsk, yk])
 
         return np.array(obs_list, dtype=np.float64)
 

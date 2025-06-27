@@ -55,16 +55,20 @@ class DRLControllerEnv(gym.Env):
         # ─── Simulation parameters ──────────────────────────────────────────────
         self.sim_time = simulation_time
         self.dt = time_step
-        self.node_names = node_names
+        self.node_base = config.TARGET_NODE
+        # Use all nodes, but agent observes only node_base phases
+        self.node_names = node_names  # all nodes in the system
         self.n_nodes = len(self.node_names)
+        self.agent_obs_nodes = [f"{self.node_base}a", f"{self.node_base}b", f"{self.node_base}c"]
         self.for_eval = for_eval
 
         # ─── Gym spaces ─────────────────────────────────────────────────────────
         self.action_space = spaces.Box(
-            low=-0.1, high=0.1, shape=(self.n_nodes,), dtype=np.float64
+            low=-0.1, high=0.1, shape=(len(self.agent_obs_nodes),), dtype=np.float64
         )
+        # Now only 3 features per node: [psi_k, eps_k, y_k]
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(self.n_nodes, 5), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=(len(self.agent_obs_nodes), 3), dtype=np.float64
         )
 
         # ─── Controller parameters ─────────────────────────────────────────────
@@ -120,7 +124,8 @@ class DRLControllerEnv(gym.Env):
             self.broker = None
 
     def reset(self, *, seed=None, options=None):
-        dummy_obs = np.zeros((self.n_nodes, 5), dtype=np.float64)
+        # Return zeros matching new observation shape
+        dummy_obs = np.zeros((self.n_nodes, 3), dtype=np.float64)
         return dummy_obs, {}
 
     def step(self, actions: np.ndarray):
@@ -129,9 +134,9 @@ class DRLControllerEnv(gym.Env):
             self._teardown()
             time.sleep(2)
 
-        # Validate actions
-        assert isinstance(actions, np.ndarray)
-        assert actions.shape == (self.n_nodes,)
+        # Validate actions with error messages
+        assert isinstance(actions, np.ndarray), "Actions must be a numpy array"
+        assert actions.shape == (len(self.agent_obs_nodes),), f"Actions shape must be {(self.n_nodes,)}"
         current_actions = actions.copy()
 
         # ——— 2) Launch broker & federates ————————————————————————————
@@ -196,22 +201,40 @@ class DRLControllerEnv(gym.Env):
                 continue
 
             # Read observations & accumulate reward
-            obs = self._read_obs()
-            last_obs = obs.copy()
-            inst_reward = -float(np.sum(obs[:, 4]))
+            obs_full = self._read_obs()  # shape: (all nodes, 3)
+            last_obs = obs_full.copy()
+            # Print the observation for node s701a
+            #if 's701a' in self.node_names:
+                #idx = self.node_names.index('s701a')
+                #print(f"Obs for s701a at t={self.current_time:.2f}: {obs_full[idx]}")
+            # Extract agent observation (3x3 for node_base phases)
+            obs_agent = np.array([obs_full[self.node_names.index(n)] for n in self.agent_obs_nodes])
+            inst_reward = -float(np.sum(obs_full[:, 2]))  # reward based on all nodes
             total_reward += inst_reward
 
             if self.current_time == next_update_time:
-                new_bp_shifts = self.model(obs)
-                actions_to_apply = new_bp_shifts
+                new_bp_shifts = self.model(obs_agent)  # agent outputs 3 shifts (a, b, c)
+                # Broadcast each shift to all nodes of the corresponding phase
+                actions_to_apply = np.zeros(len(self.node_names))
+                for i, n in enumerate(self.node_names):
+                    if n.endswith('a'):
+                        actions_to_apply[i] = new_bp_shifts[0]
+                    elif n.endswith('b'):
+                        actions_to_apply[i] = new_bp_shifts[1]
+                    elif n.endswith('c'):
+                        actions_to_apply[i] = new_bp_shifts[2]
                 next_update_time += self.action_interval
 
-                # print action for debugging for node s701a and s701b
-                if 's701a' in self.node_names:
-                    action_value = actions_to_apply[self.node_names.index('s701a')]
-                    print(f"Action for s701a at time {self.current_time}: {action_value}")
+                # print action for debugging for node s712c and s713c
 
-            # Fetch & adjust healthy breakpoints
+                #if 's712c' in self.node_names:
+                    #action_value = actions_to_apply[self.node_names.index('s712c')]
+                    #print(f"Action for s712c at time {self.current_time}: {action_value}")
+                #if 's713c' in self.node_names:
+                    #action_value = actions_to_apply[self.node_names.index('s713c')]
+                    #print(f"Action for s713c at time {self.current_time}: {action_value}")
+
+            # Publish adaptive breakpoints
             healthy_msg = {}
             if h.helicsInputIsUpdated(self.sub_healthy):
                 try:
@@ -247,10 +270,10 @@ class DRLControllerEnv(gym.Env):
     def _read_obs(self):
         """
         Read voltage observations for each node, calculate psi & epsilon,
-        and return array of shape (n_nodes, 5): [vk, vkm1, psi_old, epsk, yk]
+        and return array of shape (len(self.node_names), 3): [psi_k, eps_k, y_k]
         """
-        timeout = 0
         vs = h.helicsInputGetString(self.sub_voltage)
+        timeout = 0
         while vs == "":
             time.sleep(0.01)
             timeout += 1
@@ -260,31 +283,30 @@ class DRLControllerEnv(gym.Env):
 
         try:
             vd = eval(vs) if vs.strip().startswith('{') else {}
-        except Exception:
+        except Exception as e:
             vd = {}
 
         obs_list = []
         for n in self.node_names:
             alt = n[1:] if n.startswith('s') else n
             vk = vd.get(n, vd.get(alt, 1.0))
-
-            hst = self.v_hist[n]
+            hst = self.v_hist.setdefault(n, deque(maxlen=2))
             hst.append(vk)
             if len(hst) < 2:
-                obs_list.append([vk, vk, 0.0, 0.0, 0.0])
+                obs_list.append([0.0, 0.0, 0.0])
                 continue
 
             vkm1 = hst[-2]
-            psi_old = self.psi_prev[n]
+            psi_old = self.psi_prev.setdefault(n, 0.0)
             psik = ((vk - vkm1) - (self.m * self.dt / 2 - 1) * psi_old) \
                    / (1 + self.m * self.dt / 2)
             self.psi_prev[n] = psik
 
             epsk = self.gain * psik**2 if self.current_time > self.startup_time else 0.0
-            self.epsilon_history[n].append(epsk)
+            self.epsilon_history.setdefault(n, deque(maxlen=10)).append(epsk)
 
             yk = float(np.mean(self.epsilon_history[n]))
-            obs_list.append([vk, vkm1, psi_old, epsk, yk])
+            obs_list.append([psik, epsk, yk])
 
         return np.array(obs_list, dtype=np.float64)
 

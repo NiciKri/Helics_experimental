@@ -55,7 +55,10 @@ def run_adaptive_controller_federate(healthy_breakpoints_df, node_names, simulat
 
     # --- Controller parameters ---
     delay_timer = 1       # Delay length (number of time steps)
-    threshold = 0.5       # Threshold for activating adaptive gain
+    if config.adaptive_controller_on:
+        threshold = 0.5
+    else:
+        threshold = 1e6
     startup_time = 50     # Time (in same units as time_step) before adaptive law kicks in
     adaptive_gain = 500   # Gain parameter for adaptive breakpoint computation
     delta_t = 1           # Time step used in high-pass filter (matches time_step)

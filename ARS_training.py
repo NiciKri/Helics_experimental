@@ -1,3 +1,6 @@
+import sys
+import traceback
+
 import numpy as np
 from dataclasses import dataclass
 from Environment import DRLControllerEnv
@@ -13,16 +16,13 @@ class LinearPolicy:
         """
         D = state_shape[0] * state_shape[1]
         P = action_shape[0]
-        # Initialize weights and bias
         self.M = np.zeros((P, D))
         self.b = np.zeros(P)
 
     def get_params(self):
-        # Flatten parameters into a single vector
         return np.concatenate([self.M.flatten(), self.b])
 
     def set_params(self, theta):
-        # Unpack flat vector back into M and b
         P, D = self.M.shape, self.M.shape[1]
         total = P[0] * P[1]
         M_flat = theta[:total]
@@ -31,7 +31,6 @@ class LinearPolicy:
         self.b = b_flat
 
     def act(self, s):
-        # s is flattened and normalized state vector
         return self.M @ s + self.b
 
 
@@ -73,7 +72,6 @@ class ARSAgent:
         self.env = env
         self.p = params
 
-        # Set up policy and normalizer
         n_nodes, obs_dim = env.observation_space.shape
         self.state_dim = n_nodes * obs_dim
         self.action_dim = env.action_space.shape[0]
@@ -81,10 +79,6 @@ class ARSAgent:
         self.normalizer = Normalizer(self.state_dim)
 
     def _rollout(self, theta):
-        """
-        Run one full simulation with a fixed policy theta, return cumulative reward.
-        """
-        # Apply parameters
         self.policy.set_params(theta)
         obs, _ = self.env.reset()
         total_reward = 0.0
@@ -98,69 +92,75 @@ class ARSAgent:
         return total_reward
 
     def train(self):
-        # Debug: print how many iterations we'll run
         print(f"Starting ARS training for {self.p.num_iterations} iterations")
-
-        # Initialize theta
         theta = self.policy.get_params().copy()
 
-        # Main ARS loop
         for it in range(self.p.num_iterations):
-            # 1) sample random directions
-            deltas = [np.random.randn(*theta.shape) for _ in range(self.p.rand_directions)]
+            print(f"\n→ Beginning iteration {it+1}/{self.p.num_iterations}")
+            try:
+                # 1) sample random directions
+                deltas = [np.random.randn(*theta.shape) for _ in range(self.p.rand_directions)]
 
-            # 2) evaluate positive and negative rollouts
-            rewards_pos = [self._rollout(theta + self.p.noise_std * d) for d in deltas]
-            rewards_neg = [self._rollout(theta - self.p.noise_std * d) for d in deltas]
+                # 2) evaluate positive and negative rollouts
+                rewards_pos = []
+                rewards_neg = []
+                for idx, d in enumerate(deltas):
+                    print(f"  • Rollout +δ #{idx+1}")
+                    rewards_pos.append(self._rollout(theta + self.p.noise_std * d))
+                    print(f"  • Rollout –δ #{idx+1}")
+                    rewards_neg.append(self._rollout(theta - self.p.noise_std * d))
 
-            # 3) select best directions
-            scores = np.maximum(rewards_pos, rewards_neg)
-            idxs = np.argsort(scores)[-self.p.best_directions:]
+                # 3) select best directions
+                scores = np.maximum(rewards_pos, rewards_neg)
+                idxs = np.argsort(scores)[-self.p.best_directions:]
 
-            # 4) compute update step
-            step = np.zeros_like(theta)
-            sigma_r = np.std(rewards_pos + rewards_neg) + 1e-8
-            for idx in idxs:
-                step += (rewards_pos[idx] - rewards_neg[idx]) * deltas[idx]
-            step *= (self.p.learning_rate / (self.p.best_directions * sigma_r))
+                # 4) compute update step
+                sigma_r = np.std(rewards_pos + rewards_neg) + 1e-8
+                step = sum((rewards_pos[i] - rewards_neg[i]) * deltas[i] for i in idxs)
+                step *= (self.p.learning_rate / (self.p.best_directions * sigma_r))
 
-            # 5) update policy parameters
-            theta += step
+                # 5) update policy parameters
+                theta += step
 
-            # Log progress
-            rollout_reward = self._rollout(theta)
-            print(f"Iter {it+1:03d} | Rollout reward {rollout_reward:.2f}")
+                # 6) log progress
+                rollout_reward = self._rollout(theta)
+                print(f"Iter {it+1:03d} | Rollout reward {rollout_reward:.2f}")
 
-        # After all iterations, set final policy
+            except Exception:
+                print(f"\n!!! Exception on iteration {it+1} !!!")
+                traceback.print_exc()
+                print("Aborting training early.")
+                break
+
+        print("Setting final policy parameters (theta) and returning")
         self.policy.set_params(theta)
         return theta
 
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Instantiate HELICS‐based environment
     sim_time = config.SIMULATION_TIME
     dt = config.TIME_STEP
     env = DRLControllerEnv(sim_time, dt)
 
-    # Configure ARS hyperparameters (adjust num_iterations as needed)
     params = ARSParams(
         rand_directions=2,
         best_directions=1,
         learning_rate=0.001,
         noise_std=0.03,
-        num_iterations=200  # set this to the number of iterations you want
+        num_iterations=200
     )
 
-    # Create ARS agent
     agent = ARSAgent(env, params)
 
-    # Tell the env how to apply the learned policy at each step
     env.model = lambda obs: agent.policy.act(agent.normalizer.normalize(obs.flatten()))
 
-    # Train the policy
-    best_theta = agent.train()
+    try:
+        best_theta = agent.train()
+    except Exception:
+        print("Fatal error during training:")
+        traceback.print_exc()
+        sys.exit(1)
 
-    # Save the learned parameters
     np.save("best_ars_theta.npy", best_theta)
     print("Finished training. Policy saved to best_ars_theta.npy")

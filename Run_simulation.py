@@ -12,7 +12,7 @@ from utils import load_solar_data, load_load_data, load_breaking_points
 from federates import opendss_federate, voltage_consumer_federate, inverter_federate, attack_federate, logger_federate
 
 # Controllers
-from Controllers import adaptive_controller_federate, DRL_controller_federate, ASRController
+from Controllers import adaptive_controller_federate#, DRL_controller_federate, ASRController
 
 """Simple code to run the simulation with all federates. Configurations are set in config.py."""
 
