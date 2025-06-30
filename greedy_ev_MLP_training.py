@@ -23,6 +23,10 @@ class ARSParams:
     noise_decay_factor: float = 0.5  # multiply ν by this every noise_decay_every steps
     noise_decay_every: int = 10      # iterations between noise reductions
 
+# ─── save_normalizer_state function ───────────────────────────────────────────
+def save_normalizer_state(normalizer, path):
+    np.savez(path, mean=normalizer.mean, S=normalizer.S, n=normalizer.n)
+
 # ─── ARS Agent ────────────────────────────────────────────────────────────────
 class ARSAgent:
     def __init__(self, env: DRLControllerEnv, params: ARSParams):
@@ -62,61 +66,52 @@ class ARSAgent:
         return total_reward
 
     def train(self) -> np.ndarray:
-        print(f"Starting ARS training for {self.p.num_iterations} iterations")
+        print(f"Starting greedy evolutionary training for {self.p.num_iterations} iterations")
         theta = self.policy.get_params().copy()
-
-        # initialize schedulers
-        lr = self.p.learning_rate
-        nu = self.p.noise_std
-
+        best_reward = self._rollout(theta)
+        print(f"Initial theta reward: {best_reward:.2f}")
+        checkpoint_dir = "ars_checkpoints"
         for it in range(self.p.num_iterations):
-            print(f"\n→ Iteration {it+1}/{self.p.num_iterations} | LR={lr:.5f} | noise={nu:.5f}")
+            print(f"\n→ Iteration {it+1}/{self.p.num_iterations}")
             try:
                 # 1) sample random directions
                 deltas = [np.random.randn(*theta.shape) for _ in range(self.p.rand_directions)]
+                candidates = [theta]
+                candidate_rewards = [best_reward]
 
                 # 2) evaluate positive and negative rollouts using current noise nu
-                rewards_pos, rewards_neg = [], []
                 for idx, d in enumerate(deltas):
-                    r_pos = self._rollout(theta + nu * d)
-                    r_neg = self._rollout(theta - nu * d)
-                    rewards_pos.append(r_pos)
-                    rewards_neg.append(r_neg)
-                    #print(f"  Direction {idx+1:02d}: reward_pos = {r_pos:.2f}, reward_neg = {r_neg:.2f}")
+                    theta_pos = theta + self.p.noise_std * d
+                    theta_neg = theta - self.p.noise_std * d
+                    r_pos = self._rollout(theta_pos)
+                    r_neg = self._rollout(theta_neg)
+                    candidates.extend([theta_pos, theta_neg])
+                    candidate_rewards.extend([r_pos, r_neg])
+                    print(f"  Direction {idx+1:02d}: reward_pos = {r_pos:.2f}, reward_neg = {r_neg:.2f}")
 
-                # 3) select best directions
-                scores = np.maximum(rewards_pos, rewards_neg)
-                top_idxs = np.argsort(scores)[-self.p.best_directions:]
+                # 3) select the best candidate
+                best_idx = int(np.argmax(candidate_rewards))
+                best_candidate = candidates[best_idx]
+                best_candidate_reward = candidate_rewards[best_idx]
 
-                # 4) compute the update step
-                sigma_r = np.std(rewards_pos + rewards_neg) + 1e-8
-                step = np.zeros_like(theta)
-                for i in top_idxs:
-                    step += (rewards_pos[i] - rewards_neg[i]) * deltas[i]
-                # apply scheduled learning rate
-                step *= (lr / (self.p.best_directions * sigma_r))
+                # 4) update theta if improved
+                if best_candidate_reward > best_reward:
+                    print(f"  New best found! Reward improved from {best_reward:.2f} to {best_candidate_reward:.2f}")
+                    theta = best_candidate.copy()
+                    best_reward = best_candidate_reward
+                else:
+                    print(f"  No improvement. Keeping previous theta (reward {best_reward:.2f})")
 
-                # 5) update policy parameters
-                theta += step
-
-                # 6) log progress via unperturbed rollout
-                rollout_reward = self._rollout(theta)
-                print(f"Iter {it+1:03d} | Rollout reward {rollout_reward:.2f}")
-
-                # Save intermediate model every 10 epochs
-                checkpoint_interval = 5
+                # Save intermediate model every 5 epochs
+                checkpoint_interval = 1
                 if (it + 1) % checkpoint_interval == 0:
-                    checkpoint_path = f"ars_checkpoints/theta_iter_{it+1:03d}.npy"
+                    checkpoint_path = f"{checkpoint_dir}/theta_iter_{it+1:03d}.npy"
                     np.save(checkpoint_path, theta)
                     print(f"Checkpoint saved: {checkpoint_path}")
-
-                # 7) adjust schedules
-                if (it + 1) % self.p.lr_decay_every == 0:
-                    lr *= self.p.lr_decay_factor
-                    print(f"↘ Decayed LR → {lr:.5f}")
-                if (it + 1) % self.p.noise_decay_every == 0:
-                    nu *= self.p.noise_decay_factor
-                    print(f"↘ Decayed noise_std → {nu:.5f}")
+                    # Save normalizer state
+                    normalizer_path = f"{checkpoint_dir}/normalizer_iter_{it+1:03d}.npz"
+                    save_normalizer_state(self.normalizer, normalizer_path)
+                    print(f"Normalizer state saved: {normalizer_path}")
 
             except Exception:
                 print(f"\n!!! Exception on iteration {it+1} !!!")
@@ -126,6 +121,10 @@ class ARSAgent:
 
         print("Training complete—setting final parameters.")
         self.policy.set_params(theta)
+        # Save final normalizer state
+        final_normalizer_path = f"{checkpoint_dir}/normalizer_final.npz"
+        save_normalizer_state(self.normalizer, final_normalizer_path)
+        print(f"Final normalizer state saved: {final_normalizer_path}")
         return theta
 
 
@@ -140,11 +139,11 @@ if __name__ == "__main__":
         best_directions=2,
         learning_rate=0.005,
         noise_std=0.02,
-        num_iterations=50,
+        num_iterations=30,
         lr_decay_factor=0.5,
         lr_decay_every=10,
         noise_decay_factor=0.5,
-        noise_decay_every=15,
+        noise_decay_every=10,
     )
 
     agent = ARSAgent(env, params)

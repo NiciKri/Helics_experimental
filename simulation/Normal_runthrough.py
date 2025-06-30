@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,7 +17,7 @@ def load_normalizer_state(normalizer, path):
     normalizer.S = d['S']
     normalizer.n = int(d['n'])
 
-def run_one_episode(theta_path="ars_checkpoints/theta_iter_002.npy"):
+def run_one_episode(theta_path="greedy_ev_checkpoints/theta_iter_002.npy"):
     # 1) Setup environment
     sim_time = config.SIMULATION_TIME
     dt = config.TIME_STEP

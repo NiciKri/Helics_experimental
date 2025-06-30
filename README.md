@@ -3,6 +3,15 @@
 ## Overview
 This project implements distributed control and simulation of power systems using HELICS and OpenDSS. It includes reinforcement learning (ARS), federated simulation, and data analysis tools.
 
+## How to Run Simulations
+
+- **Without or with the adaptive controller:**
+  - Use `Run_simulation.py` to run the HELICS co-simulation. This script supports running with the default (no controller) or the adaptive controller (as implemented in the Controllers folder). To turn the controller on or off, adjust the corresponding variable (True/False) in config.py.
+
+- **With the machine learning (ML) controller or for training:**
+  - Use the ARS-based scripts (e.g., `ARS_MLP_training.py`) to train a machine learning controller.
+  - To run a simulation using a trained ML controller, use `Normal_runthrough.py`.
+
 ## Main Python Scripts
 - **ARS_training.py**: Trains a policy using Augmented Random Search (ARS) in a HELICS-based environment. Saves the best policy.
 - **Run_simulation.py**: Runs a full HELICS co-simulation using the configured federates and environment. Currently, the adaptive controller is implemented without using a trained policy but an adaptive structure
