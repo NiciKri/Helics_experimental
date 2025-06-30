@@ -66,9 +66,9 @@ class DRLControllerEnv(gym.Env):
         self.action_space = spaces.Box(
             low=-0.1, high=0.1, shape=(len(self.agent_obs_nodes),), dtype=np.float64
         )
-        # Now only 3 features per node: [psi_k, eps_k, y_k]
+        # Now 6 features per node: [vk, vkm1, vk-1.0, psi, eps, y]
         self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(len(self.agent_obs_nodes), 3), dtype=np.float64
+            low=-np.inf, high=np.inf, shape=(len(self.agent_obs_nodes), 6), dtype=np.float64
         )
 
         # ─── Controller parameters ─────────────────────────────────────────────
@@ -125,7 +125,7 @@ class DRLControllerEnv(gym.Env):
 
     def reset(self, *, seed=None, options=None):
         # Return zeros matching new observation shape
-        dummy_obs = np.zeros((self.n_nodes, 3), dtype=np.float64)
+        dummy_obs = np.zeros((self.n_nodes, 6), dtype=np.float64)
         return dummy_obs, {}
 
     def step(self, actions: np.ndarray):
@@ -209,7 +209,7 @@ class DRLControllerEnv(gym.Env):
                 #print(f"Obs for s701a at t={self.current_time:.2f}: {obs_full[idx]}")
             # Extract agent observation (3x3 for node_base phases)
             obs_agent = np.array([obs_full[self.node_names.index(n)] for n in self.agent_obs_nodes])
-            inst_reward = -float(np.sum(obs_full[:, 2]))  # reward based on all nodes
+            inst_reward = -float(np.sum(obs_full[:, -1]))  # reward based on all nodes
             total_reward += inst_reward
 
             if self.current_time == next_update_time:
@@ -293,7 +293,8 @@ class DRLControllerEnv(gym.Env):
             hst = self.v_hist.setdefault(n, deque(maxlen=2))
             hst.append(vk)
             if len(hst) < 2:
-                obs_list.append([0.0, 0.0, 0.0])
+                # [raw voltage, previous voltage, deviation, psi, eps, y]
+                obs_list.append([vk, vk, vk - 1.0, 0.0, 0.0, 0.0])
                 continue
 
             vkm1 = hst[-2]
@@ -306,7 +307,8 @@ class DRLControllerEnv(gym.Env):
             self.epsilon_history.setdefault(n, deque(maxlen=10)).append(epsk)
 
             yk = float(np.mean(self.epsilon_history[n]))
-            obs_list.append([psik, epsk, yk])
+            # [raw voltage, previous voltage, deviation, psi, eps, y]
+            obs_list.append([vk, vkm1, vk - 1.0, psik, epsk, yk])
 
         return np.array(obs_list, dtype=np.float64)
 
