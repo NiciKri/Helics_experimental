@@ -17,7 +17,7 @@ def load_normalizer_state(normalizer, path):
     normalizer.S = d['S']
     normalizer.n = int(d['n'])
 
-def run_one_episode(theta_path="greedy_ev_checkpoints/theta_iter_002.npy"):
+def run_one_episode(theta_path="greedy_ev_checkpoints/best_theta.npy"):
     # 1) Setup environment
     sim_time = config.SIMULATION_TIME
     dt = config.TIME_STEP
